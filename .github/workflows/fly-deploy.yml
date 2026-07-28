@@ -1,0 +1,25 @@
+# Auto-deploy to Fly.io on every push to the main branch.
+# One-time setup (see AUTODEPLOY.md): add a FLY_API_TOKEN secret to this repo.
+# After that, updates go live automatically when new code is pushed — no manual
+# deploy step. The release command in fly.toml runs migrations + seed on deploy.
+name: Deploy to Fly.io
+
+on:
+  push:
+    branches: [main]
+
+# Never run two deploys at once; a newer push supersedes an in-flight one.
+concurrency:
+  group: fly-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

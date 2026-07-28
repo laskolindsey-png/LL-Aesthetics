@@ -1,0 +1,30 @@
+# Fly.io configuration for the LL Aesthetics operating system.
+# The app name is set during `fly launch`. Region "dfw" (Dallas) is closest to Texas.
+
+app = "ll-aesthetics-os"
+primary_region = "dfw"
+
+[build]
+
+# Runs on every deploy, before the new version goes live: apply DB migrations
+# and seed a fresh database (seeding is skipped automatically if data exists).
+[deploy]
+  release_command = "npm run release"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/api/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

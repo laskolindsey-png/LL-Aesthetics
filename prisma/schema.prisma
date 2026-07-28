@@ -1,0 +1,358 @@
+// TOOL — Treatment Operations & Optimization Logic
+// Data model for the LL Aesthetics operating system.
+//
+// Designed multi-tenant from day one (every row carries a tenantId) so the
+// same codebase can later be licensed to other medspas without a rewrite.
+//
+// Local dev uses SQLite. To move to PostgreSQL later, change `provider` below
+// to "postgresql" and point DATABASE_URL at your Postgres instance.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// A single medspa. LL Aesthetics is tenant #1.
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+
+  patients  Patient[]
+  rules     ServiceRule[]
+  records   WorkflowRecord[]
+  tasks     Task[]
+  settings  Setting[]
+  templates MessageTemplate[]
+  users     User[]
+  leads     Lead[]
+  plans     TreatmentPlan[]
+  planItems TreatmentPlanItem[]
+  peptideOrders PeptideOrder[]
+  toxPatients ToxPatient[]
+  toxChecks ToxCheck[]
+  mindbody MindbodyConfig?
+  webhookEvents WebhookEvent[]
+}
+
+// Mindbody connection settings (one per tenant). The API key and webhook signing
+// secret are NOT stored here — they live as environment secrets. This holds the
+// non-secret config plus the on/off switch, so nothing sensitive sits in the DB.
+model MindbodyConfig {
+  id               String    @id @default(cuid())
+  tenantId         String    @unique
+  tenant           Tenant    @relation(fields: [tenantId], references: [id])
+  siteId           String? // the Mindbody Site ID
+  enabled          Boolean   @default(false) // master switch for processing events
+  autoCreateVisits Boolean   @default(true)  // completed appointment -> workflow record
+  lastEventAt      DateTime?
+  createdAt        DateTime  @default(now())
+}
+
+// A durable log of every inbound webhook, so events are auditable and nothing is
+// lost even before full processing is turned on.
+model WebhookEvent {
+  id             String   @id @default(cuid())
+  tenantId       String?
+  tenant         Tenant?  @relation(fields: [tenantId], references: [id])
+  provider       String   @default("Mindbody")
+  eventType      String?
+  status         String   @default("received") // received | processed | ignored | error
+  signatureValid Boolean  @default(false)
+  payload        String // raw JSON body
+  error          String?
+  receivedAt     DateTime @default(now())
+
+  @@index([provider, receivedAt])
+}
+
+// Botox / tox satisfaction tracking. Mirrors Lindsey's color-coded workbook:
+//   green  = happy         red = not happy
+//   yellow = tough patient (never happy but still coming)
+//   white  = awaiting first results check
+// Ongoing by design: each results check appends a dated ToxCheck, so the color
+// is the latest entry in a history — you can see the trend over time.
+model ToxPatient {
+  id               String    @id @default(cuid())
+  tenantId         String
+  tenant           Tenant    @relation(fields: [tenantId], references: [id])
+  // Optional link to the main patient record. When linked, treatments logged in
+  // Patient Workflow (or synced from Mindbody) update this profile's lastVisit,
+  // so the reactivation clock reflects real visits — no double data entry.
+  patientId        String?   @unique
+  patient          Patient?  @relation(fields: [patientId], references: [id], onDelete: SetNull)
+  name             String
+  phone            String?
+  initialTreatment String?
+  isClubMember     Boolean   @default(false)
+  twoWeekBooked    Boolean   @default(false)
+  twoWeekDate      DateTime?
+  status           String    @default("awaiting") // happy | not_happy | watch | awaiting
+  notes            String?
+  lastCheckDate    DateTime?
+  lastVisitDate    DateTime? // most recent time seen — drives 6-month reactivation
+  isDemo           Boolean   @default(false)
+  createdAt        DateTime  @default(now())
+
+  checks ToxCheck[]
+  tasks  Task[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, lastVisitDate])
+}
+
+// One results-check entry. Appending one updates the patient's current color
+// and builds the ongoing satisfaction history.
+model ToxCheck {
+  id           String     @id @default(cuid())
+  tenantId     String
+  tenant       Tenant     @relation(fields: [tenantId], references: [id])
+  toxPatientId String
+  toxPatient   ToxPatient @relation(fields: [toxPatientId], references: [id], onDelete: Cascade)
+  checkDate    DateTime   @default(now())
+  status       String // happy | not_happy | watch
+  note         String?
+  createdAt    DateTime   @default(now())
+
+  @@index([tenantId, toxPatientId])
+}
+
+// A peptide order, mirroring the shared order sheet. Flows through a hand-off:
+// Requested (front desk) -> Approved -> Filled -> Shipped (tracking) -> Received.
+// `externalRef` is reserved for future two-way Google Sheet sync.
+model PeptideOrder {
+  id             String    @id @default(cuid())
+  tenantId       String
+  tenant         Tenant    @relation(fields: [tenantId], references: [id])
+  patientName    String
+  dob            String?
+  phone          String?
+  shipTo         String    @default("Patient") // Patient | LL Aesthetics
+  address        String?
+  city           String?
+  state          String?
+  zip            String?
+  product        String // the peptide + strength (the "Order" column)
+  dosing         String? // Script & Dosing
+  amount         Float?
+  orderType      String? // New | Reorder | Replacement
+  notes          String?
+  status         String    @default("Requested") // Requested|Approved|Filled|Shipped|Received|Cancelled
+  trackingNumber String?
+  carrier        String? // UPS | FedEx | USPS | ...
+  invoice        String? // invoice number, e.g. P-LL-0001
+  orderDate      DateTime?
+  shippedDate    DateTime?
+  provider       String? // reviewing/filling medical director
+  externalRef    String? // reserved for Google Sheet sync
+  createdAt      DateTime  @default(now())
+
+  tasks Task[]
+
+  @@index([tenantId, status])
+}
+
+// A patient's recommended-treatment roadmap (e.g., from an Aura skin scan).
+model TreatmentPlan {
+  id        String    @id @default(cuid())
+  tenantId  String
+  tenant    Tenant    @relation(fields: [tenantId], references: [id])
+  patientId String
+  patient   Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  label     String    @default("Treatment Plan")
+  source    String? // e.g. "Aura Scan"
+  planDate  DateTime?
+  notes     String?
+  status    String    @default("Active") // Active | Completed | Archived
+  createdAt DateTime  @default(now())
+
+  items TreatmentPlanItem[]
+
+  @@index([tenantId, patientId])
+}
+
+// A single recommended treatment on a plan, with a target date and price.
+model TreatmentPlanItem {
+  id            String    @id @default(cuid())
+  tenantId      String
+  tenant        Tenant    @relation(fields: [tenantId], references: [id])
+  planId        String
+  plan          TreatmentPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  category      String?
+  treatment     String
+  targetDate    DateTime?
+  durationMin   Int?
+  price         Float?
+  status        String    @default("Recommended") // Recommended | Scheduled | Completed | Declined
+  scheduledDate DateTime?
+  completedDate DateTime?
+  notes         String?
+  sortOrder     Int       @default(0)
+
+  @@index([tenantId, status, targetDate])
+}
+
+// A prospective patient who hasn't scheduled yet. Once they book, the lead is
+// marked "Booked" and drops out of the active pipeline.
+model Lead {
+  id          String    @id @default(cuid())
+  tenantId    String
+  tenant      Tenant    @relation(fields: [tenantId], references: [id])
+  name        String
+  phone       String?
+  email       String?
+  source      String? // how they found us: Walk-In, Phone Call, Social Message, ...
+  stage       String    @default("New") // New | Contacted | Nurturing | Booked | Lost
+  assignedTo  String?
+  notes       String?
+  createdAt   DateTime  @default(now())
+  convertedAt DateTime?
+
+  tasks Task[]
+
+  @@index([tenantId, stage])
+}
+
+// A staff login. Passwords are stored only as scrypt hashes, never plaintext.
+model User {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+  email        String   @unique
+  name         String?
+  passwordHash String
+  role         String   @default("staff") // "owner" | "staff"
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  lastLoginAt  DateTime?
+
+  @@index([tenantId])
+}
+
+// A patient. Kept intentionally minimal — clinical detail stays out of here.
+model Patient {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  name      String
+  phone     String?
+  email     String?
+  isDemo    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  records WorkflowRecord[]
+  plans   TreatmentPlan[]
+  toxProfile ToxPatient?
+
+  @@index([tenantId])
+}
+
+// The rules engine — the "brain". One row per step of a follow-up sequence,
+// keyed by (patientEvent + service). Mirrors the "Service Rules" tab.
+model ServiceRule {
+  id                 String   @id @default(cuid())
+  tenantId           String
+  tenant             Tenant   @relation(fields: [tenantId], references: [id])
+  patientEvent       String
+  service            String
+  serviceCategory    String?
+  step               Int
+  workflowStep       String
+  delayDays          Int
+  anchor             String
+  assignedTo         String
+  priority           String
+  automationTemplate String?
+  active             Boolean  @default(true)
+
+  @@index([tenantId, patientEvent, service])
+}
+
+// One patient event/treatment instance. Mirrors a "Patient Workflow" row.
+// Creating one automatically generates its follow-up Tasks from ServiceRule.
+model WorkflowRecord {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+  code         String   @unique // human-friendly ID, e.g. T20260722165130896
+  patientId    String
+  patient      Patient  @relation(fields: [patientId], references: [id])
+  provider     String?
+  assignedTo   String?
+  patientEvent String
+  service      String
+  eventDate    DateTime
+  status       String   @default("In Progress")
+  notes        String?
+  createdAt    DateTime @default(now())
+
+  tasks Task[]
+
+  @@index([tenantId])
+}
+
+// A single follow-up task generated from a ServiceRule. Populates "Today's Tasks".
+model Task {
+  id                 String    @id @default(cuid())
+  tenantId           String
+  tenant             Tenant    @relation(fields: [tenantId], references: [id])
+  // A task belongs to EITHER a treatment record OR a lead.
+  recordId           String?
+  record             WorkflowRecord? @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  leadId             String?
+  lead               Lead?     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  peptideOrderId     String?
+  peptideOrder       PeptideOrder? @relation(fields: [peptideOrderId], references: [id], onDelete: Cascade)
+  toxPatientId       String?
+  toxPatient         ToxPatient? @relation(fields: [toxPatientId], references: [id], onDelete: Cascade)
+  stepNumber         Int
+  workflowStep       String
+  assignedTo         String?
+  priority           String    @default("Medium")
+  anchor             String?
+  delayDays          Int       @default(0)
+  dueDate            DateTime?
+  status             String    @default("Pending")
+  automationTemplate String?
+  contactMethod      String?
+  actionResult       String?
+  completedDate      DateTime?
+  notes              String?
+  createdAt          DateTime  @default(now())
+
+  @@index([tenantId, status, dueDate])
+}
+
+// Dropdown vocabularies. Mirrors the "Settings" tab. `type` groups them
+// (e.g. "Service", "Priority", "PatientEvent").
+model Setting {
+  id        String  @id @default(cuid())
+  tenantId  String
+  tenant    Tenant  @relation(fields: [tenantId], references: [id])
+  type      String
+  value     String
+  sortOrder Int     @default(0)
+  active    Boolean @default(true)
+
+  @@index([tenantId, type])
+}
+
+// Message copy for each automation template. Bodies are filled in Phase 2;
+// for now we seed the keys referenced by the rules so nothing is orphaned.
+model MessageTemplate {
+  id       String  @id @default(cuid())
+  tenantId String
+  tenant   Tenant  @relation(fields: [tenantId], references: [id])
+  key      String
+  name     String
+  channel  String  @default("SMS")
+  body     String  @default("")
+  active   Boolean @default(true)
+
+  @@index([tenantId, key])
+}
