@@ -20,9 +20,9 @@ export default async function ToxImportPage({
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
         <Link href="/tox" className="text-sm text-muted hover:text-ink">
-          ← Botox Tracker
+          ← Tox Tracker
         </Link>
-        <h1 className="mt-2 text-2xl font-semibold text-ink">Import your Botox patients</h1>
+        <h1 className="mt-2 text-2xl font-semibold text-ink">Import your tox patients</h1>
         <p className="mt-1 text-sm text-muted">
           Load your whole list at once from a spreadsheet — no re-typing. Your
           patient info goes straight into your database and is never stored in

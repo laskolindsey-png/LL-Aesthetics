@@ -1,9 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { prisma } from "./prisma";
 import { getCurrentTenantId } from "./tenant";
 import { fromDateInput } from "./dates";
+import { parseAuraPdf, auraDate } from "./auraPlan";
 
 function revalidatePlanViews(patientId?: string) {
   revalidatePath("/plans");
@@ -102,5 +104,76 @@ export async function deletePlan(formData: FormData) {
   const plan = await prisma.treatmentPlan.findFirst({ where: { id, tenantId } });
   if (!plan) throw new Error("Plan not found.");
   await prisma.treatmentPlan.delete({ where: { id } });
+  revalidatePlanViews(patientId);
+}
+
+// --- Aura scan upload -------------------------------------------------------
+// Accept an Aura "Treatment Plan" PDF: store the file with the patient (so it's
+// downloadable later) AND auto-build a plan from its OVERVIEW. The file bytes are
+// real PHI — they live in the DB, never in the repo.
+export async function uploadAuraPlan(formData: FormData) {
+  const tenantId = await getCurrentTenantId();
+  const patientId = String(formData.get("patientId") ?? "");
+  const patient = await prisma.patient.findFirst({ where: { id: patientId, tenantId } });
+  if (!patient) throw new Error("Patient not found.");
+
+  const file = formData.get("file") as File | null;
+  if (!file || file.size === 0) redirect(`/patients/${patientId}?planError=nofile`);
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+
+  let items: Awaited<ReturnType<typeof parseAuraPdf>>["items"] = [];
+  try {
+    ({ items } = await parseAuraPdf(buffer));
+  } catch (e) {
+    console.error("[uploadAuraPlan] parse failed:", e);
+    items = []; // still store the file even if parsing hiccups
+  }
+
+  // Store the file with the patient.
+  const doc = await prisma.planDocument.create({
+    data: {
+      tenantId,
+      patientId,
+      fileName: file.name || "aura-plan.pdf",
+      mimeType: file.type || "application/pdf",
+      sizeBytes: buffer.length,
+      source: "Aura Scan",
+      data: buffer,
+    },
+  });
+
+  // Build the plan from the parsed overview (if any).
+  if (items.length) {
+    const plan = await prisma.treatmentPlan.create({
+      data: { tenantId, patientId, label: "Aura Plan", source: "Aura Scan", planDate: new Date() },
+    });
+    await prisma.planDocument.update({ where: { id: doc.id }, data: { planId: plan.id } });
+    await prisma.treatmentPlanItem.createMany({
+      data: items.map((it, i) => ({
+        tenantId,
+        planId: plan.id,
+        category: it.category,
+        treatment: it.treatment,
+        targetDate: auraDate(it.date),
+        durationMin: it.durationMin,
+        price: it.price,
+        sortOrder: i,
+        status: "Recommended",
+      })),
+    });
+  }
+
+  revalidatePlanViews(patientId);
+  redirect(`/patients/${patientId}?uploaded=${items.length}`);
+}
+
+export async function deletePlanDocument(formData: FormData) {
+  const tenantId = await getCurrentTenantId();
+  const id = String(formData.get("docId") ?? "");
+  const patientId = String(formData.get("patientId") ?? "");
+  const doc = await prisma.planDocument.findFirst({ where: { id, tenantId } });
+  if (!doc) throw new Error("Document not found.");
+  await prisma.planDocument.delete({ where: { id } });
   revalidatePlanViews(patientId);
 }

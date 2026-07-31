@@ -1,7 +1,7 @@
 import { Badge } from "@/components/Badge";
 import { formatDate, toDateInput, todayStart } from "@/lib/dates";
 import { money, planItemStatusTone, isDueToBook } from "@/lib/plans";
-import { createPlan, addPlanItem, setPlanItemStatus, deletePlanItem, deletePlan } from "@/lib/planActions";
+import { createPlan, addPlanItem, setPlanItemStatus, deletePlanItem, deletePlan, uploadAuraPlan, deletePlanDocument } from "@/lib/planActions";
 
 const STATUSES = ["Recommended", "Scheduled", "Completed", "Declined"] as const;
 
@@ -23,19 +23,68 @@ type Plan = {
   items: Item[];
 };
 
+type Doc = {
+  id: string;
+  fileName: string;
+  sizeBytes: number;
+  source: string | null;
+  createdAt: Date;
+};
+
 export function PatientPlans({
   plans,
   patientId,
   services,
+  documents = [],
 }: {
   plans: Plan[];
   patientId: string;
   services: string[];
+  documents?: Doc[];
 }) {
   return (
     <section className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-ink">Treatment Plans</h2>
+        <h2 className="text-sm font-semibold text-ink">Aura Plans</h2>
+      </div>
+
+      {/* Upload an Aura scan → auto-builds the plan + saves the file */}
+      <div className="card border-dashed p-4">
+        <form action={uploadAuraPlan} className="flex flex-wrap items-center gap-3">
+          <input type="hidden" name="patientId" value={patientId} />
+          <div className="flex-1 min-w-[220px]">
+            <label className="label">Upload Aura scan (PDF)</label>
+            <input type="file" name="file" accept="application/pdf,.pdf" className="block text-sm" required />
+            <p className="mt-1 text-xs text-muted">
+              We&apos;ll save the file here and auto-build the plan from it — you just review.
+            </p>
+          </div>
+          <button className="btn-accent">Upload &amp; build plan</button>
+        </form>
+
+        {documents.length > 0 && (
+          <div className="mt-4 space-y-1.5 border-t border-line pt-3">
+            <div className="text-xs font-medium uppercase tracking-wide text-muted">Saved scans</div>
+            {documents.map((d) => (
+              <div key={d.id} className="flex items-center justify-between gap-3 text-sm">
+                <a
+                  href={`/api/plan-document/${d.id}`}
+                  className="text-accent hover:underline"
+                >
+                  ⬇ {d.fileName}
+                </a>
+                <div className="flex items-center gap-3 text-xs text-muted">
+                  <span>{formatDate(d.createdAt)} · {(d.sizeBytes / 1024 / 1024).toFixed(1)} MB</span>
+                  <form action={deletePlanDocument}>
+                    <input type="hidden" name="docId" value={d.id} />
+                    <input type="hidden" name="patientId" value={patientId} />
+                    <button className="text-danger hover:underline">Remove</button>
+                  </form>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {plans.map((plan) => {
@@ -151,12 +200,12 @@ export function PatientPlans({
 
       {/* Add a new plan */}
       <details className="card p-4">
-        <summary className="cursor-pointer text-sm font-medium text-ink">+ Add a Treatment Plan</summary>
+        <summary className="cursor-pointer text-sm font-medium text-ink">+ Add an Aura Plan</summary>
         <form action={createPlan} className="mt-4 grid gap-3 md:grid-cols-2">
           <input type="hidden" name="patientId" value={patientId} />
           <div>
             <label className="label">Plan name</label>
-            <input name="label" className="input" defaultValue="Aura Treatment Plan" />
+            <input name="label" className="input" defaultValue="Aura Plan" />
           </div>
           <div>
             <label className="label">Source</label>
@@ -171,7 +220,7 @@ export function PatientPlans({
             <input name="notes" className="input" placeholder="(optional)" />
           </div>
           <div className="md:col-span-2 flex justify-end">
-            <button className="btn-primary">Create Plan</button>
+            <button className="btn-primary">Create Aura Plan</button>
           </div>
         </form>
       </details>

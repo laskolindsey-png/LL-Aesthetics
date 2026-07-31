@@ -8,16 +8,21 @@ const BASE_LINKS = [
   { href: "/tasks", label: "Today's Tasks" },
   { href: "/workflow", label: "Patient Workflow" },
   { href: "/patients", label: "Patients" },
-  { href: "/plans", label: "Plans" },
+  { href: "/plans", label: "Aura Plans" },
   { href: "/peptides", label: "Peptides" },
-  { href: "/tox", label: "Botox Tracker" },
+  { href: "/tox", label: "Tox Tracker" },
+  { href: "/memberships", label: "Memberships" },
   { href: "/leads", label: "Leads" },
   { href: "/rules", label: "Service Rules" },
+  { href: "/messages", label: "Messages" },
+  { href: "/knowledge", label: "Knowledge" },
   { href: "/settings", label: "Settings" },
 ];
 
 const OWNER_LINKS = [
   { href: "/insights", label: "Insights" },
+  { href: "/finances", label: "Financials" },
+  { href: "/chloe", label: "Chloe" },
   { href: "/integrations", label: "Integrations" },
   { href: "/team", label: "Team" },
 ];

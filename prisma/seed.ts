@@ -13,6 +13,10 @@
  */
 import { PrismaClient } from "@prisma/client";
 import { hashPassword } from "../src/lib/password";
+import { defaultMessageFor } from "../src/lib/templates";
+import { STARTER_FAQS, STARTER_POLICIES, STARTER_AFTERCARE } from "../src/lib/knowledgeStarters";
+import { LL_KNOWLEDGE, LL_EXTRA_ENTRIES } from "../src/lib/chloeKnowledgeContent";
+import { SEED_VENDORS } from "../src/lib/finance";
 
 const prisma = new PrismaClient();
 
@@ -238,10 +242,18 @@ async function seedConfig(tenantId: string, tenantName: string) {
     });
   }
 
-  // Message template placeholders (one per unique automation key).
+  // Message templates (one per unique automation key), pre-filled with friendly
+  // starter copy so the app isn't full of blank messages on first run. Editable
+  // in-app on the Messages screen.
   const templateKeys = Array.from(new Set(ruleRows.map((r) => r.automationTemplate)));
   await prisma.messageTemplate.createMany({
-    data: templateKeys.map((key) => ({ tenantId, key, name: key, channel: "SMS", body: "" })),
+    data: templateKeys.map((key) => ({
+      tenantId,
+      key,
+      name: key,
+      channel: "SMS",
+      body: key ? defaultMessageFor(key) : "",
+    })),
   });
 
   // Fictional demo patients so the app isn't empty on first launch. Delete anytime.
@@ -276,6 +288,44 @@ async function seedConfig(tenantId: string, tenantName: string) {
       });
     }
   }
+
+  // Fictional demo members so the Memberships tab shows its dashboard on first
+  // run. Delete anytime and add your real members.
+  const demoMembers = [
+    { memberName: "Demo — Ava Member", tier: "VIP Membership", monthlyAmount: 149 },
+    { memberName: "Demo — Bella Member", tier: "Membership", monthlyAmount: 99 },
+    { memberName: "Demo — Cora Member", tier: "Membership", monthlyAmount: 99 },
+  ];
+  for (const m of demoMembers) {
+    await prisma.membership.create({
+      data: { tenantId, ...m, status: "Active", isDemo: true, startDate: new Date() },
+    });
+  }
+
+  // Chloe's knowledge-base skeleton — blank entries for the practice to fill with
+  // their own real answers. A Service entry per service, plus common FAQs,
+  // policies, and aftercare. (Never pre-filled with invented facts.)
+  const kbServices = Array.from(new Set(SERVICES.map((s) => s.service)));
+  // Deduplicate by category::title so pre-written extras override the blank
+  // skeleton instead of creating duplicates.
+  const kbMap = new Map<string, { category: string; title: string; content: string; sortOrder: number }>();
+  let kbi = 0;
+  const addKb = (category: string, title: string, content: string) => {
+    kbMap.set(`${category}::${title.toLowerCase()}`, { category, title, content, sortOrder: kbi++ });
+  };
+  for (const t of kbServices) addKb("Service", t, LL_KNOWLEDGE[t] ?? "");
+  for (const t of STARTER_FAQS) addKb("FAQ", t, LL_KNOWLEDGE[t] ?? "");
+  for (const t of STARTER_POLICIES) addKb("Policy", t, LL_KNOWLEDGE[t] ?? "");
+  for (const t of STARTER_AFTERCARE) addKb("Aftercare", t, LL_KNOWLEDGE[t] ?? "");
+  for (const e of LL_EXTRA_ENTRIES) addKb(e.category, e.title, e.content); // extras win
+  await prisma.knowledgeEntry.createMany({
+    data: Array.from(kbMap.values()).map((r) => ({ tenantId, ...r })),
+  });
+
+  // Financials: seed common vendors with their default categories.
+  await prisma.vendor.createMany({
+    data: SEED_VENDORS.map((v) => ({ tenantId, ...v })),
+  });
 
   const settingsCount = Object.values(SETTINGS).reduce((a, v) => a + v.length, 0);
   console.log(

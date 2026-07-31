@@ -64,11 +64,13 @@ export async function setToxStatus(formData: FormData) {
   const tenantId = await getCurrentTenantId();
   const id = String(formData.get("id") ?? "");
   const status = String(formData.get("status") ?? "").trim();
+  const note = String(formData.get("note") ?? "").trim() || null;
   const patient = await prisma.toxPatient.findFirst({ where: { id, tenantId } });
   if (!patient) throw new Error("Patient not found.");
 
   if ((TOX_CHECK_STATUSES as readonly string[]).includes(status)) {
-    await logCheck(tenantId, id, status, null, new Date());
+    // Save the check (with the optional note) to their history.
+    await logCheck(tenantId, id, status, note, new Date());
   } else {
     await prisma.toxPatient.update({ where: { id }, data: { status: "awaiting" } });
   }
@@ -356,21 +358,23 @@ export async function importToxCsv(formData: FormData) {
         twoWeekDate,
         notes,
         status,
-        lastCheckDate: status !== "awaiting" ? twoWeekDate ?? new Date() : null,
+        // Only record a check date when the sheet actually has one — never invent
+        // "today," which would make every imported patient look freshly seen.
+        lastCheckDate: status !== "awaiting" && twoWeekDate ? twoWeekDate : null,
         // Best available "last seen" signal from the sheet: the two-week date.
         lastVisitDate: twoWeekDate ?? null,
       },
     });
-    // Seed one history entry for colored patients so the timeline starts with
-    // their known status (and the comment explains why).
-    if (status !== "awaiting") {
+    // Seed a history entry only when we have a real date; otherwise the color is
+    // still set on the patient, but we don't fabricate a dated check.
+    if (status !== "awaiting" && twoWeekDate) {
       await prisma.toxCheck.create({
         data: {
           tenantId,
           toxPatientId: patient.id,
           status,
           note: notes,
-          checkDate: twoWeekDate ?? new Date(),
+          checkDate: twoWeekDate,
         },
       });
     }

@@ -104,4 +104,3 @@ priority there and the whole system follows.
 - **Phase 4** — multi-tenant licensing for other medspas (onboarding, billing).
 
 _TOOL™ — built for LL Aesthetics._
-

@@ -38,6 +38,98 @@ model Tenant {
   toxChecks ToxCheck[]
   mindbody MindbodyConfig?
   webhookEvents WebhookEvent[]
+  memberships Membership[]
+  knowledge KnowledgeEntry[]
+  planDocuments PlanDocument[]
+  revenueEntries RevenueEntry[]
+  expenseEntries ExpenseEntry[]
+  vendors Vendor[]
+}
+
+// --- Financials (owner-only) ------------------------------------------------
+// A native version of the Financial Management sheet: manual revenue/expense
+// entries, plus auto-derived revenue from memberships & completed treatments.
+// Owner-only. Real numbers — DB only, never in the repo.
+model RevenueEntry {
+  id          String    @id @default(cuid())
+  tenantId    String
+  tenant      Tenant    @relation(fields: [tenantId], references: [id])
+  periodStart DateTime
+  periodEnd   DateTime?
+  category    String    // Service Revenue | Retail Sales | Membership Revenue | Other
+  description String?
+  amount      Float
+  source      String?
+  createdAt   DateTime  @default(now())
+
+  @@index([tenantId, periodStart])
+}
+
+model ExpenseEntry {
+  id          String    @id @default(cuid())
+  tenantId    String
+  tenant      Tenant    @relation(fields: [tenantId], references: [id])
+  date        DateTime
+  vendor      String?
+  description String?
+  category    String    // Inventory | Operating | Equipment | Owner Activity | Banking
+  subcategory String?
+  amount      Float
+  recurring   Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+
+  @@index([tenantId, date])
+}
+
+model Vendor {
+  id                 String  @id @default(cuid())
+  tenantId           String
+  tenant             Tenant  @relation(fields: [tenantId], references: [id])
+  name               String
+  defaultCategory    String?
+  defaultSubcategory String?
+  createdAt          DateTime @default(now())
+
+  @@index([tenantId])
+}
+
+// Chloe's knowledge base — the practice's own truth she answers from. Editable
+// in-app. Categories: Service | FAQ | Aftercare | Policy | Pricing | Promotion.
+model KnowledgeEntry {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  category  String
+  title     String // the service name or the question
+  content   String   @default("") // the answer / details (blank until filled)
+  tags      String? // optional keywords for matching
+  active    Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, category])
+}
+
+// A membership / club enrollment — the recurring-revenue side of the practice.
+// Linkable to a patient record (optional) so members can be flagged app-wide.
+model Membership {
+  id            String    @id @default(cuid())
+  tenantId      String
+  tenant        Tenant    @relation(fields: [tenantId], references: [id])
+  patientId     String?
+  patient       Patient?  @relation(fields: [patientId], references: [id], onDelete: SetNull)
+  memberName    String
+  phone         String?
+  tier          String    @default("Membership") // plan name / level
+  monthlyAmount Float?
+  status        String    @default("Active") // Active | Paused | Cancelled
+  startDate     DateTime?
+  renewalDate   DateTime?
+  notes         String?
+  isDemo        Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+
+  @@index([tenantId, status])
 }
 
 // Mindbody connection settings (one per tenant). The API key and webhook signing
@@ -248,8 +340,30 @@ model Patient {
   records WorkflowRecord[]
   plans   TreatmentPlan[]
   toxProfile ToxPatient?
+  memberships Membership[]
+  documents PlanDocument[]
 
   @@index([tenantId])
+}
+
+// An uploaded plan document (e.g. an Aura scan PDF), stored with the patient so
+// it can be downloaded later. The file bytes live in the DB — real patient PHI,
+// never in the repo. On upload we also parse the overview into plan items.
+model PlanDocument {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  patientId String
+  patient   Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  planId    String?
+  fileName  String
+  mimeType  String   @default("application/pdf")
+  sizeBytes Int      @default(0)
+  source    String?  @default("Aura Scan")
+  data      Bytes
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, patientId])
 }
 
 // The rules engine — the "brain". One row per step of a follow-up sequence,

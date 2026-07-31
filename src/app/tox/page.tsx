@@ -3,15 +3,14 @@ import { getCurrentTenantId } from "@/lib/tenant";
 import { formatDate, monthsAgo } from "@/lib/dates";
 import { Badge } from "@/components/Badge";
 import { NewToxPatientForm } from "@/components/NewToxPatientForm";
-import { setToxStatus, startReactivation, startReactivationForAllDue } from "@/lib/toxActions";
+import { startReactivation, startReactivationForAllDue } from "@/lib/toxActions";
 import {
   TOX_LABEL,
-  TOX_HINT,
-  TOX_CHECK_STATUSES,
   toxStatusTone,
   TOX_ROW_TINT,
   REACTIVATE_MONTHS,
 } from "@/lib/toxStatus";
+import { ToxSetColorCell } from "@/components/ToxSetColorCell";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -89,6 +88,11 @@ export default async function ToxPage({
       orderBy: isReactivate ? [{ lastVisitDate: "asc" }] : [{ name: "asc" }],
       include: {
         _count: { select: { checks: true } },
+        checks: {
+          orderBy: [{ checkDate: "desc" }, { createdAt: "desc" }],
+          take: 1,
+          select: { note: true },
+        },
         tasks: {
           where: { workflowStep: "6-Month Reactivation", status: { notIn: ["Completed", "Cancelled"] } },
           select: { id: true },
@@ -110,7 +114,7 @@ export default async function ToxPage({
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-ink">Botox Tracker</h1>
+          <h1 className="text-2xl font-semibold text-ink">Tox Tracker</h1>
           <p className="mt-1 text-sm text-muted">
             Track how each Botox patient felt at their results check. Set a color
             as they come in — every change is saved to their history.
@@ -204,17 +208,17 @@ export default async function ToxPage({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-line bg-canvas/50 text-left text-xs uppercase tracking-wide text-muted">
-                <th className="px-4 py-3 font-medium">Patient</th>
-                <th className="px-4 py-3 font-medium">{isReactivate ? "Last Visit" : "Last Check"}</th>
-                <th className="px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3 font-medium">{isReactivate ? "Reactivation" : "Set Color"}</th>
-                <th className="px-4 py-3 font-medium">Comments</th>
+                <th className="px-3 py-2 font-medium">Patient</th>
+                <th className="px-3 py-2 font-medium">{isReactivate ? "Last Visit" : "Last Check"}</th>
+                <th className="px-3 py-2 font-medium">Status</th>
+                <th className="px-3 py-2 font-medium">{isReactivate ? "Reactivation" : "Set Color"}</th>
+                <th className="px-3 py-2 font-medium">Comments</th>
               </tr>
             </thead>
             <tbody>
               {patients.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-10 text-center text-muted">
+                  <td colSpan={5} className="px-3 py-10 text-center text-muted">
                     {isReactivate
                       ? "No lapsed patients right now. 🎉"
                       : total === 0
@@ -228,22 +232,22 @@ export default async function ToxPage({
                   return (
                     <tr
                       key={p.id}
-                      className={`border-b border-line/60 align-top ${TOX_ROW_TINT[p.status] ?? ""}`}
+                      className={`border-b border-line/60 ${TOX_ROW_TINT[p.status] ?? ""}`}
                     >
-                      <td className="px-4 py-3">
-                        <Link href={`/tox/${p.id}`} className="font-medium text-ink hover:underline">
-                          {p.name}
-                        </Link>
-                        <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted">
-                          {p.phone && <span>{p.phone}</span>}
+                      <td className="px-3 py-2">
+                        <div className="flex items-center gap-1.5 whitespace-nowrap">
+                          <Link href={`/tox/${p.id}`} className="font-medium text-ink hover:underline">
+                            {p.name}
+                          </Link>
                           {p.isClubMember && (
-                            <span className="rounded bg-blush/40 px-1.5 py-0.5 text-[10px] font-medium text-clay">
-                              ★ Club
+                            <span className="rounded bg-blush/40 px-1 py-0.5 text-[9px] font-medium text-clay">
+                              ★
                             </span>
                           )}
+                          {p.phone && <span className="text-[11px] text-muted">{p.phone}</span>}
                         </div>
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-muted">
+                      <td className="px-3 py-2 whitespace-nowrap text-muted">
                         {isReactivate
                           ? p.lastVisitDate
                             ? formatDate(p.lastVisitDate)
@@ -252,15 +256,15 @@ export default async function ToxPage({
                           ? formatDate(p.lastCheckDate)
                           : "—"}
                         {!isReactivate && p._count.checks > 0 && (
-                          <div className="text-[11px] text-muted/70">
-                            {p._count.checks} check{p._count.checks === 1 ? "" : "s"}
-                          </div>
+                          <span className="ml-1 text-[11px] text-muted/70">
+                            ({p._count.checks})
+                          </span>
                         )}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-2">
                         <Badge tone={toxStatusTone(p.status)}>{TOX_LABEL[p.status]}</Badge>
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-2">
                         {isReactivate ? (
                           hasTask ? (
                             <span className="text-xs text-success">✓ Task created</span>
@@ -273,29 +277,16 @@ export default async function ToxPage({
                             </form>
                           )
                         ) : (
-                          <div className="flex flex-wrap gap-1">
-                            {TOX_CHECK_STATUSES.map((s) => (
-                              <form key={s} action={setToxStatus}>
-                                <input type="hidden" name="id" value={p.id} />
-                                <input type="hidden" name="status" value={s} />
-                                <button
-                                  title={TOX_HINT[s]}
-                                  className={`rounded border px-1.5 py-0.5 text-[10px] ${
-                                    p.status === s
-                                      ? "border-ink bg-ink text-white"
-                                      : "border-line text-muted hover:bg-canvas hover:text-ink"
-                                  }`}
-                                >
-                                  {TOX_LABEL[s]}
-                                </button>
-                              </form>
-                            ))}
-                          </div>
+                          <ToxSetColorCell id={p.id} status={p.status} />
                         )}
                       </td>
-                      <td className="px-4 py-3 text-muted">
+                      <td className="px-3 py-2 text-muted">
                         {p.notes ? (
-                          <span className="line-clamp-2">{p.notes}</span>
+                          <div className="line-clamp-1 max-w-xs">{p.notes}</div>
+                        ) : p.checks[0]?.note ? (
+                          <div className="line-clamp-1 max-w-xs text-[11px] text-muted/80">
+                            🗒 {p.checks[0].note}
+                          </div>
                         ) : (
                           <span className="text-muted/50">—</span>
                         )}

@@ -6,6 +6,7 @@ import { Badge } from "@/components/Badge";
 import { NewPeptideOrderForm } from "@/components/NewPeptideOrderForm";
 import { setPeptideStatus, updateTracking, deletePeptideOrder } from "@/lib/peptideActions";
 import { PEPTIDE_STATUSES, peptideStatusTone } from "@/lib/peptideStatus";
+import { PEPTIDE_PRODUCT_NAMES, PEPTIDE_PRICEBOOK } from "@/lib/peptideCatalog";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -30,20 +31,19 @@ function Kpi({ label, value, tone = "ink" }: { label: string; value: string; ton
 export default async function PeptidesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ filter?: string }>;
+  searchParams: Promise<{ filter?: string; imported?: string; skipped?: string }>;
 }) {
-  const { filter } = await searchParams;
+  const { filter, imported, skipped } = await searchParams;
   const key = filter && FILTERS[filter] ? filter : "open";
   const active = FILTERS[key];
   const tenantId = await getCurrentTenantId();
   const monthStart = new Date(todayStart().getFullYear(), todayStart().getMonth(), 1);
 
-  const [orders, products, openCount, transitCount, receivedThisMonth, openValueRows] = await Promise.all([
+  const [orders, openCount, transitCount, receivedThisMonth, openValueRows] = await Promise.all([
     prisma.peptideOrder.findMany({
       where: active.statuses.length ? { tenantId, status: { in: active.statuses } } : { tenantId },
       orderBy: [{ createdAt: "desc" }],
     }),
-    prisma.setting.findMany({ where: { tenantId, type: "PeptideProduct", active: true }, orderBy: { sortOrder: "asc" } }),
     prisma.peptideOrder.count({ where: { tenantId, status: { in: ["Requested", "Approved", "Filled"] } } }),
     prisma.peptideOrder.count({ where: { tenantId, status: "Shipped" } }),
     prisma.peptideOrder.count({ where: { tenantId, status: "Received", createdAt: { gte: monthStart } } }),
@@ -54,16 +54,29 @@ export default async function PeptidesPage({
   ]);
 
   const openValue = openValueRows.reduce((s, o) => s + (o.amount ?? 0), 0);
+  const products = PEPTIDE_PRODUCT_NAMES.map((value, i) => ({ id: `cat-${i}`, value }));
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-ink">Peptide Orders</h1>
-        <p className="mt-1 text-sm text-muted">
-          Enter orders here and track them through to delivery. (Sync with your
-          director&apos;s shared sheet arrives once you&apos;re online.)
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold text-ink">Peptide Orders</h1>
+          <p className="mt-1 text-sm text-muted">
+            Enter orders here and track them through to delivery. Pick a product
+            and the price fills itself.
+          </p>
+        </div>
+        <Link href="/peptides/import" className="btn-ghost">
+          Import history
+        </Link>
       </div>
+
+      {imported && (
+        <div className="rounded-lg border border-success/30 bg-success/10 px-4 py-3 text-sm text-success">
+          Imported {imported} order{imported === "1" ? "" : "s"} as completed history
+          {skipped && Number(skipped) > 0 ? ` (skipped ${skipped} already on file)` : ""}.
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <Kpi label="To Fill" value={String(openCount)} tone={openCount ? "warning" : "ink"} />
@@ -72,7 +85,7 @@ export default async function PeptidesPage({
         <Kpi label="Open Order Value" value={money(openValue)} />
       </div>
 
-      <NewPeptideOrderForm products={products} todayInput={toDateInput(todayStart())} />
+      <NewPeptideOrderForm products={products} pricebook={PEPTIDE_PRICEBOOK} todayInput={toDateInput(todayStart())} />
 
       <div className="flex flex-wrap gap-1">
         {Object.entries(FILTERS).map(([k, f]) => (

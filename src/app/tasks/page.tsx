@@ -3,6 +3,9 @@ import { getCurrentTenantId } from "@/lib/tenant";
 import { addDays, todayStart, daysUntil, formatDate } from "@/lib/dates";
 import { Badge, priorityTone } from "@/components/Badge";
 import { completeTask } from "@/lib/actions";
+import { renderTemplate } from "@/lib/templates";
+import { MessageBlock } from "@/components/MessageBlock";
+import { ChloeDraftButton } from "@/components/ChloeDraftButton";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +14,7 @@ export default async function TasksPage() {
   const tenantId = await getCurrentTenantId();
   const horizon = addDays(todayStart(), 1);
 
-  const [tasks, actionResults] = await Promise.all([
+  const [tasks, actionResults, templateRows] = await Promise.all([
     prisma.task.findMany({
       where: {
         tenantId,
@@ -25,7 +28,9 @@ export default async function TasksPage() {
       where: { tenantId, type: "ActionResult", active: true },
       orderBy: { sortOrder: "asc" },
     }),
+    prisma.messageTemplate.findMany({ where: { tenantId } }),
   ]);
+  const templates = new Map(templateRows.map((t) => [t.key, t]));
 
   return (
     <div className="space-y-6">
@@ -78,6 +83,25 @@ export default async function TasksPage() {
                   : t.toxPatient
                     ? "Open patient →"
                     : "Open →";
+
+            // The drafted message for this follow-up, personalized — ready to
+            // review and send. Empty until the template has wording (see Messages).
+            const tpl = t.automationTemplate ? templates.get(t.automationTemplate) : undefined;
+            const serviceForMsg = t.record
+              ? t.record.service
+              : t.peptideOrder
+                ? t.peptideOrder.product
+                : t.lead
+                  ? "your visit"
+                  : "";
+            const message =
+              tpl && tpl.body?.trim()
+                ? renderTemplate(tpl.body, {
+                    patient: who,
+                    service: serviceForMsg,
+                    date: t.record ? formatDate(t.record.eventDate) : "",
+                  })
+                : null;
             return (
               <div key={t.id} className="card p-4">
                 <div className="flex flex-wrap items-start justify-between gap-4">
@@ -128,6 +152,20 @@ export default async function TasksPage() {
                     <button className="btn-primary py-1.5 text-xs">Complete</button>
                   </form>
                 </div>
+
+                {message ? (
+                  <MessageBlock text={message} />
+                ) : t.automationTemplate ? (
+                  <div className="mt-2 text-xs text-muted">
+                    No message written for “{t.automationTemplate}” yet —{" "}
+                    <Link href="/messages" className="text-accent hover:underline">
+                      add one in Messages
+                    </Link>
+                    .
+                  </div>
+                ) : null}
+
+                <ChloeDraftButton taskId={t.id} />
               </div>
             );
           })}

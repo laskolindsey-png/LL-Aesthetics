@@ -81,6 +81,17 @@ fly secrets set --app ll-aesthetics-os \
 Then in the app: **Integrations → enter Site ID → Turn the connection on.** The
 webhook URL to give Mindbody is `https://<app-domain>/api/webhooks/mindbody`.
 
+**Optional — Chloe (AI concierge, Phase 1 drafting).** Runs on the practice's own
+model key under their own BAA. Sign a BAA with the AI provider (Anthropic offers
+one), then:
+```bash
+fly secrets set --app ll-aesthetics-os \
+  ANTHROPIC_API_KEY="<your key>"
+# optional: CHLOE_MODEL (default claude-sonnet-5)
+```
+The moment it's set, the "✨ Draft with Chloe" button on every task goes live.
+Cost is a fraction of a cent per message.
+
 ## 5. Deploy
 ```bash
 fly deploy --app ll-aesthetics-os

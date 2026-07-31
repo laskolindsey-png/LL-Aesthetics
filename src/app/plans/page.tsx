@@ -41,10 +41,17 @@ export default async function PlansPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-ink">Treatment Plans — To Book</h1>
+        <h1 className="text-2xl font-semibold text-ink">Aura Plans — To Book</h1>
         <p className="mt-1 text-sm text-muted">
           Recommended treatments coming due that aren&apos;t scheduled yet. Reach
           out, book them, then mark them scheduled to clear them from this list.
+        </p>
+        <p className="mt-2 text-sm text-muted">
+          To build a new plan, open a patient and use the{" "}
+          <strong>Aura Plans</strong> section on their page.{" "}
+          <Link href="/patients" className="text-accent hover:underline">
+            Go to Patients →
+          </Link>
         </p>
       </div>
 

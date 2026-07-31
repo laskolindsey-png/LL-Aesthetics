@@ -2,18 +2,33 @@
 
 import { useState } from "react";
 import { createPeptideOrder } from "@/lib/peptideActions";
+import { normalizeProductKey } from "@/lib/peptideCatalog";
 
 type Option = { id: string; value: string };
+type Pricebook = Record<string, { price: number; dosing: string }>;
 
 export function NewPeptideOrderForm({
   products,
+  pricebook,
   todayInput,
 }: {
   products: Option[];
+  pricebook: Pricebook;
   todayInput: string;
 }) {
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
+  const [amount, setAmount] = useState("");
+  const [dosing, setDosing] = useState("");
+
+  // When a catalog product is picked, fill in its price and typical dosing.
+  function onProductChange(value: string) {
+    const hit = pricebook[normalizeProductKey(value)];
+    if (hit) {
+      setAmount(String(hit.price));
+      if (hit.dosing) setDosing(hit.dosing);
+    }
+  }
 
   return (
     <div className="card p-5">
@@ -33,6 +48,8 @@ export function NewPeptideOrderForm({
             setPending(true);
             try {
               await createPeptideOrder(fd);
+              setAmount("");
+              setDosing("");
               setOpen(false);
             } finally {
               setPending(false);
@@ -55,7 +72,14 @@ export function NewPeptideOrderForm({
 
           <div className="md:col-span-2">
             <label className="label">Peptide / product</label>
-            <input name="product" className="input" list="peptide-products" placeholder="e.g. Tirzepatide 15mg (1ml)" required />
+            <input
+              name="product"
+              className="input"
+              list="peptide-products"
+              placeholder="e.g. Tirzepatide 15mg / B6 25mg — 1ml"
+              onChange={(e) => onProductChange(e.target.value)}
+              required
+            />
             <datalist id="peptide-products">
               {products.map((p) => (
                 <option key={p.id} value={p.value} />
@@ -64,7 +88,15 @@ export function NewPeptideOrderForm({
           </div>
           <div>
             <label className="label">Order amount</label>
-            <input name="amount" type="number" step="0.01" className="input" placeholder="$" />
+            <input
+              name="amount"
+              type="number"
+              step="0.01"
+              className="input"
+              placeholder="$"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+            />
           </div>
           <div>
             <label className="label">Order type</label>
@@ -77,7 +109,13 @@ export function NewPeptideOrderForm({
 
           <div className="md:col-span-4">
             <label className="label">Script &amp; dosing</label>
-            <input name="dosing" className="input" placeholder="e.g. 2.5mg per SQ weekly" />
+            <input
+              name="dosing"
+              className="input"
+              placeholder="e.g. 2.5mg per SQ weekly"
+              value={dosing}
+              onChange={(e) => setDosing(e.target.value)}
+            />
           </div>
 
           <div>

@@ -71,7 +71,7 @@ export default async function ToxPatientPage({
     <div className="space-y-6">
       <div>
         <Link href="/tox" className="text-sm text-muted hover:text-ink">
-          ← Botox Tracker
+          ← Tox Tracker
         </Link>
       </div>
 

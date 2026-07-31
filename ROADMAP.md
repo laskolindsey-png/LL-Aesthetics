@@ -100,13 +100,20 @@ _(paste your ideas here — I'll organize them into the sections below)_
 - ⬜ "Review queue" so you approve auto-generated communications before they send.
 
 ### Revenue & Treatment Plans
+- ✅ **Memberships tab.** SHIPPED. Recurring-revenue dashboard (active members,
+  MRR, annualized value, renewing this month), add/manage members, status
+  (Active/Paused/Cancelled), renewal dates. _Next: link members to patient
+  records + flag app-wide; renewal-reminder tasks._
 - ⬜ Plan value / projected revenue reporting (per patient, per month)
-- ⬜ Membership tracking tied to plans
 - ⬜ Nudges when a plan milestone/target date is approaching
 
 ### Patients & communication
-- ⬜ Message templates that pull in patient name / service / dates automatically
-- ⬜ Recall/reactivation list (patients not seen in X months)
+- ✅ **Message templates + review-before-send.** SHIPPED. Personalized copy
+  ({{firstName}}, {{service}}, {{date}}, {{clinic}}) editable on the Messages
+  screen; every task shows its drafted message with a Copy button — your
+  review-and-send step. Starter copy included. _Next: one-click "send" once an
+  SMS/email provider is connected (until then, copy into your texting tool)._
+- ⬜ Recall/reactivation list (patients not seen in X months) — general, beyond Botox
 
 ### Reporting & dashboard
 - ✅ **Owner-only Insights KPI dashboard.** SHIPPED. One readable screen (no more
@@ -126,3 +133,16 @@ _(paste your ideas here — I'll organize them into the sections below)_
 ---
 
 _Last updated by our working sessions. Add anytime — this file grows with the app._
+
+## Chloe — AI Concierge (owned by LL Aesthetics)
+- ✅ **Blueprint** (persona, human-touch, escalation, KB map, voice bank, vendor brief) — PDF.
+- ✅ **Phase 1 prototype SHIPPED** — "✨ Draft with Chloe" on every task drafts in
+  her voice on the practice's own Anthropic key (own BAA); pulls patient context,
+  flags [ESCALATE] for medical/sensitive, shows for review. Owner /chloe control page.
+- ✅ **Knowledge Base SHIPPED** — editable /knowledge (Services/FAQs/Aftercare/Policies),
+  seeded blank with your real services + common questions; wired into Chloe so she
+  answers only from your truth. _Next: fill in the real content (Lindsey)._
+- ⬜ Editable persona in-app (per-tenant, for licensing).
+- ⬜ Phase 2: text channel (Weave/Twilio) for inbound patient replies.
+- ⬜ Phase 3: two-way + booking (Mindbody) + voice (Retell, own the brain).
+- Note: own the brain (LL OS + Chloe), rent the voice (Retell) — the licensable asset.

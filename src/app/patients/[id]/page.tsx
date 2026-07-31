@@ -11,13 +11,16 @@ export const dynamic = "force-dynamic";
 
 export default async function PatientDetail({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ uploaded?: string; planError?: string }>;
 }) {
   const { id } = await params;
+  const { uploaded, planError } = await searchParams;
   const tenantId = await getCurrentTenantId();
 
-  const [patient, actionResults, serviceSettings] = await Promise.all([
+  const [patient, actionResults, serviceSettings, documents] = await Promise.all([
     prisma.patient.findFirst({
       where: { id, tenantId },
       include: {
@@ -38,6 +41,11 @@ export default async function PatientDetail({
     prisma.setting.findMany({
       where: { tenantId, type: "Service", active: true },
       orderBy: { sortOrder: "asc" },
+    }),
+    prisma.planDocument.findMany({
+      where: { tenantId, patientId: id },
+      select: { id: true, fileName: true, sizeBytes: true, source: true, createdAt: true },
+      orderBy: { createdAt: "desc" },
     }),
   ]);
 
@@ -62,7 +70,25 @@ export default async function PatientDetail({
         </div>
       </div>
 
-      <PatientPlans plans={patient.plans} patientId={patient.id} services={services} />
+      {uploaded !== undefined && (
+        <div className="rounded-lg border border-success/30 bg-success/10 px-4 py-3 text-sm text-success">
+          {Number(uploaded) > 0
+            ? `Aura scan uploaded — ${uploaded} treatment${uploaded === "1" ? "" : "s"} added to a new Aura Plan below. Review and adjust as needed.`
+            : "File uploaded and saved to this patient. (No treatments were auto-read — you can add them below.)"}
+        </div>
+      )}
+      {planError === "nofile" && (
+        <div className="rounded-lg border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
+          Please choose a PDF file to upload.
+        </div>
+      )}
+
+      <PatientPlans
+        plans={patient.plans}
+        patientId={patient.id}
+        services={services}
+        documents={documents}
+      />
 
       <h2 className="pt-2 text-sm font-semibold text-ink">Treatment History</h2>
       {patient.records.length === 0 ? (
