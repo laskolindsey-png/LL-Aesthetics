@@ -65,3 +65,44 @@ export function extractEventType(payload: unknown): string | null {
     null
   );
 }
+
+const MINDBODY_BASE_URL = "https://api.mindbodyonline.com/public/v6";
+
+export async function mindbodyGet<T>(
+  siteId: string,
+  path: string,
+  searchParams?: Record<string, string | number | boolean | undefined>
+): Promise<T> {
+  const apiKey = process.env.MINDBODY_API_KEY;
+
+  if (!apiKey) {
+    throw new Error("MINDBODY_API_KEY is not configured.");
+  }
+
+  const url = new URL(`${MINDBODY_BASE_URL}${path}`);
+
+  for (const [key, value] of Object.entries(searchParams ?? {})) {
+    if (value !== undefined) {
+      url.searchParams.set(key, String(value));
+    }
+  }
+
+  const response = await fetch(url, {
+    headers: {
+      "API-Key": apiKey,
+      SiteId: siteId,
+      "User-Agent": "LL-Aesthetics-OS",
+      Accept: "application/json",
+    },
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(
+      `Mindbody request failed (${response.status}): ${body || response.statusText}`
+    );
+  }
+
+  return (await response.json()) as T;
+}

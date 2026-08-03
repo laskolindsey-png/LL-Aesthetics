@@ -92,6 +92,23 @@ export default async function IntegrationsPage() {
                 placeholder="e.g. 123456"
               />
             </div>
+          <div>
+  <label className="label">Workflow Creation Cutoff Date</label>
+  <input
+    type="date"
+    name="workflowCutoffDate"
+    defaultValue={
+      config.workflowCutoffDate
+        ? config.workflowCutoffDate.toISOString().slice(0, 10)
+        : ""
+    }
+    className="input"
+  />
+  <p className="mt-1 text-xs text-muted">
+    Appointments before this date will update patient history only. Follow-up
+    tasks will only be created for appointments on or after this date.
+  </p>
+</div>
           </div>
           <label className="flex items-center gap-2 text-sm text-ink">
             <input type="checkbox" name="autoCreateVisits" defaultChecked={config.autoCreateVisits} className="h-4 w-4" />

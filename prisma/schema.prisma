@@ -140,6 +140,7 @@ model MindbodyConfig {
   tenantId         String    @unique
   tenant           Tenant    @relation(fields: [tenantId], references: [id])
   siteId           String? // the Mindbody Site ID
+  workflowCutoffDate DateTime?
   enabled          Boolean   @default(false) // master switch for processing events
   autoCreateVisits Boolean   @default(true)  // completed appointment -> workflow record
   lastEventAt      DateTime?
