@@ -166,6 +166,7 @@ export default async function IntegrationsPage() {
                 <th className="px-5 py-2.5 font-medium">Event</th>
                 <th className="px-5 py-2.5 font-medium">Signature</th>
                 <th className="px-5 py-2.5 font-medium">Status</th>
+                <th className="px-5 py-2.5 font-medium">Payload</th>
               </tr>
             </thead>
             <tbody>
@@ -181,6 +182,16 @@ export default async function IntegrationsPage() {
                     </Badge>
                   </td>
                   <td className="px-5 py-2.5 text-muted">{e.status}</td>
+                  <td className="px-5 py-2.5">
+  <details>
+    <summary className="cursor-pointer text-xs text-muted hover:text-ink">
+      View payload
+    </summary>
+    <pre className="mt-2 max-w-xl overflow-x-auto whitespace-pre-wrap rounded-lg border border-line bg-canvas/50 p-3 text-xs text-ink">
+      {e.payload}
+    </pre>
+  </details>
+</td>
                 </tr>
               ))}
             </tbody>
