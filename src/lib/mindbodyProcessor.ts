@@ -41,6 +41,8 @@ export async function processMindbodyWebhook(
     case "appointmentBooking.created":
     case "appointmentBooking.updated":
       return handleAppointmentEvent(tenantId, payload);
+    case "appointmentBooking.cancelled":
+      return handleAppointmentCancelled(tenantId, payload);
 
     default:
       return;
@@ -173,5 +175,53 @@ async function handleAppointmentEvent(
     mindbodyAppointmentId: appointmentId,
     skipPastDueTasks: true,
     notes: "Created automatically from Mindbody.",
+  });
+}
+
+async function handleAppointmentCancelled(
+  tenantId: string,
+  payload: MindbodyWebhookPayload
+) {
+  const appointmentId = String(
+    payload.eventData?.appointmentId ?? ""
+  ).trim();
+
+  if (!appointmentId) return;
+
+  const record = await prisma.workflowRecord.findFirst({
+    where: {
+      tenantId,
+      mindbodyAppointmentId: appointmentId,
+    },
+    include: {
+      tasks: true,
+    },
+  });
+
+  if (!record) return;
+
+  await prisma.task.updateMany({
+    where: {
+      recordId: record.id,
+      status: {
+        not: "Completed",
+      },
+    },
+    data: {
+      status: "Cancelled",
+      notes: "Cancelled automatically after Mindbody appointment cancellation.",
+    },
+  });
+
+  await prisma.workflowRecord.update({
+    where: {
+      id: record.id,
+    },
+    data: {
+      status: "Cancelled",
+      notes: [record.notes, "Mindbody appointment cancelled."]
+        .filter(Boolean)
+        .join(" · "),
+    },
   });
 }
