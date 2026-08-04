@@ -59,7 +59,7 @@ export async function POST(req: Request) {
   }
 
   // Note the heartbeat so the connection page can show "last event received".
-  if (tenant) {
+ if (tenant) {
   const config = await prisma.mindbodyConfig.findUnique({
     where: { tenantId: tenant.id },
   });
@@ -71,11 +71,56 @@ export async function POST(req: Request) {
     });
   }
 
-  if (config?.enabled && payload && typeof payload === "object") {
-    await processMindbodyWebhook(
-      tenant.id,
-      payload as Parameters<typeof processMindbodyWebhook>[1]
-    );
+  if (!config?.enabled || !payload || typeof payload !== "object") {
+    await prisma.webhookEvent.updateMany({
+      where: {
+        tenantId: tenant.id,
+        provider: "Mindbody",
+        payload: raw.slice(0, 20000),
+        status: "received",
+      },
+      data: {
+        status: "ignored",
+      },
+    });
+  } else {
+    try {
+      await processMindbodyWebhook(
+        tenant.id,
+        payload as Parameters<typeof processMindbodyWebhook>[1]
+      );
+
+      await prisma.webhookEvent.updateMany({
+        where: {
+          tenantId: tenant.id,
+          provider: "Mindbody",
+          payload: raw.slice(0, 20000),
+          status: "received",
+        },
+        data: {
+          status: "processed",
+          error: null,
+        },
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unknown processing error";
+
+      await prisma.webhookEvent.updateMany({
+        where: {
+          tenantId: tenant.id,
+          provider: "Mindbody",
+          payload: raw.slice(0, 20000),
+          status: "received",
+        },
+        data: {
+          status: "error",
+          error: message.slice(0, 1000),
+        },
+      });
+
+      console.error("[Mindbody] Webhook processing failed:", error);
+    }
   }
 }
 
