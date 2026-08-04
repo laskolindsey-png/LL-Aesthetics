@@ -7,6 +7,7 @@ import { getCurrentTenantId } from "./tenant";
 import { generateTasks, makeRecordCode } from "./engine";
 import { filterDuplicateFollowUps } from "./dedupe";
 import { fromDateInput } from "./dates";
+import { createWorkflowRecord } from "./workflowService";
 
 /**
  * Record a new patient event and auto-generate its follow-up tasks.
@@ -26,81 +27,34 @@ export async function createEvent(formData: FormData) {
   if (!patientEvent || !service || !eventDateRaw) {
     throw new Error("Patient event, service, and event date are required.");
   }
+
   if (!existingPatientId && !patientName) {
     throw new Error("Choose an existing patient or enter a new patient name.");
   }
 
   const eventDate = fromDateInput(eventDateRaw);
 
-  // Resolve the patient (existing selection wins; otherwise create).
   let patientId = existingPatientId;
+
   if (!patientId) {
     const patient = await prisma.patient.create({
-      data: { tenantId, name: patientName },
+      data: {
+        tenantId,
+        name: patientName,
+      },
     });
+
     patientId = patient.id;
   }
 
-  const generated = await generateTasks(tenantId, patientEvent, service, eventDate);
-
-  // Same-day de-duplication: if this patient already has the same communication
-  // due on the same day (e.g. from another service today), don't create it again.
-  const { toCreate, suppressed } = await filterDuplicateFollowUps(
+  await createWorkflowRecord({
     tenantId,
     patientId,
-    generated
-  );
-
-  // If everything was a duplicate, the visit still gets logged — it just rides on
-  // the follow-ups already scheduled for the patient today.
-  const recordStatus = toCreate.length > 0 ? "In Progress" : "Completed";
-  const mergeNote =
-    suppressed.length > 0
-      ? `${suppressed.length} follow-up${suppressed.length === 1 ? "" : "s"} merged — patient already has ${
-          suppressed.length === 1 ? "it" : "them"
-        } today.`
-      : null;
-  const finalNotes = [notes, mergeNote].filter(Boolean).join(" · ") || null;
-
-  await prisma.workflowRecord.create({
-    data: {
-      tenantId,
-      code: makeRecordCode(),
-      patientId,
-      provider,
-      patientEvent,
-      service,
-      eventDate,
-      notes: finalNotes,
-      status: recordStatus,
-      tasks: {
-        create: toCreate.map((t) => ({
-          tenantId,
-          stepNumber: t.stepNumber,
-          workflowStep: t.workflowStep,
-          assignedTo: t.assignedTo,
-          priority: t.priority,
-          anchor: t.anchor,
-          delayDays: t.delayDays,
-          dueDate: t.dueDate,
-          automationTemplate: t.automationTemplate,
-          status: "Pending",
-        })),
-      },
-    },
-  });
-
-  // Share the visit timeline: if this patient is tracked in the Botox Tracker,
-  // advance their last-visit so the reactivation clock reflects this real visit
-  // (only ever moves forward). No duplicate reminders — this just resets the
-  // reactivation window; rebooking still comes from the workflow rules alone.
-  await prisma.toxPatient.updateMany({
-    where: {
-      tenantId,
-      patientId,
-      OR: [{ lastVisitDate: null }, { lastVisitDate: { lt: eventDate } }],
-    },
-    data: { lastVisitDate: eventDate },
+    patientEvent,
+    service,
+    eventDate,
+    provider,
+    notes,
   });
 
   revalidatePath("/");
@@ -109,7 +63,6 @@ export async function createEvent(formData: FormData) {
   revalidatePath("/patients");
   revalidatePath("/tox");
 }
-
 /** Mark a task complete, capturing what was done. */
 export async function completeTask(formData: FormData) {
   const tenantId = await getCurrentTenantId();
