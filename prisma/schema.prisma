@@ -335,6 +335,7 @@ model Patient {
   name      String
   phone     String?
   email     String?
+  mindbodyClientId String?
   isDemo    Boolean  @default(false)
   createdAt DateTime @default(now())
 
@@ -395,6 +396,7 @@ model WorkflowRecord {
   tenantId     String
   tenant       Tenant   @relation(fields: [tenantId], references: [id])
   code         String   @unique // human-friendly ID, e.g. T20260722165130896
+  mindbodyAppointmentId String?
   patientId    String
   patient      Patient  @relation(fields: [patientId], references: [id])
   provider     String?
@@ -408,6 +410,7 @@ model WorkflowRecord {
 
   tasks Task[]
 
+  @@unique([tenantId, mindbodyAppointmentId])
   @@index([tenantId])
 }
 

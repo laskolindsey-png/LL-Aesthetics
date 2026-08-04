@@ -5,6 +5,8 @@ import {
   hasWebhookSecret,
 } from "@/lib/mindbody";
 
+import { processMindbodyWebhook } from "@/lib/mindbodyProcessor";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -58,17 +60,24 @@ export async function POST(req: Request) {
 
   // Note the heartbeat so the connection page can show "last event received".
   if (tenant) {
-    const config = await prisma.mindbodyConfig.findUnique({ where: { tenantId: tenant.id } });
-    if (config) {
-      await prisma.mindbodyConfig.update({
-        where: { tenantId: tenant.id },
-        data: { lastEventAt: new Date() },
-      });
-    }
-    // Processing (appointment -> workflow record via the de-dup engine) turns on
-    // once the connection is enabled and real payloads are validated. Until then
-    // events are logged and acknowledged so nothing is lost.
+  const config = await prisma.mindbodyConfig.findUnique({
+    where: { tenantId: tenant.id },
+  });
+
+  if (config) {
+    await prisma.mindbodyConfig.update({
+      where: { tenantId: tenant.id },
+      data: { lastEventAt: new Date() },
+    });
   }
+
+  if (config?.enabled && payload && typeof payload === "object") {
+    await processMindbodyWebhook(
+      tenant.id,
+      payload as Parameters<typeof processMindbodyWebhook>[1]
+    );
+  }
+}
 
   return Response.json({ ok: true });
 }
