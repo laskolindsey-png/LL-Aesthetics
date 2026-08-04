@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { createWorkflowRecord } from "./workflowService";
 
 type MindbodyWebhookPayload = {
   eventId?: string;
@@ -12,6 +13,8 @@ type MindbodyWebhookPayload = {
     clientEmail?: string | null;
     appointmentName?: string;
     status?: string;
+    staffFirstName?: string;
+    staffLastName?: string;
     startDateTime?: string;
     endDateTime?: string;
   };
@@ -22,26 +25,34 @@ function normalizePhone(value?: string | null): string | null {
   return digits || null;
 }
 
+function isCompletedAppointment(payload: MindbodyWebhookPayload): boolean {
+  const status = String(payload.eventData?.status ?? "")
+    .trim()
+    .toLowerCase();
+
+  return ["completed", "checked out", "checkout", "finished"].includes(status);
+}
+
 export async function processMindbodyWebhook(
   tenantId: string,
   payload: MindbodyWebhookPayload
 ) {
   switch (payload.eventId) {
     case "appointmentBooking.created":
-      return handleAppointmentCreated(tenantId, payload);
+    case "appointmentBooking.updated":
+      return handleAppointmentEvent(tenantId, payload);
 
     default:
-      // Other event types will be added incrementally.
       return;
   }
 }
 
-async function handleAppointmentCreated(
+async function resolvePatient(
   tenantId: string,
   payload: MindbodyWebhookPayload
 ) {
   const data = payload.eventData;
-  if (!data) return;
+  if (!data) return null;
 
   const mindbodyClientId = String(
     data.clientId ?? data.clientUniqueId ?? ""
@@ -56,12 +67,11 @@ async function handleAppointmentCreated(
 
   if (!mindbodyClientId || !name) {
     console.warn(
-      "[Mindbody] Appointment-created event is missing client ID or name."
+      "[Mindbody] Appointment event is missing client ID or client name."
     );
-    return;
+    return null;
   }
 
-  // First choice: an existing permanent Mindbody client mapping.
   let patient = await prisma.patient.findFirst({
     where: {
       tenantId,
@@ -69,7 +79,6 @@ async function handleAppointmentCreated(
     },
   });
 
-  // Second choice: Lindsey's requested deduplication rule — name + phone.
   if (!patient && phone) {
     patient = await prisma.patient.findFirst({
       where: {
@@ -81,7 +90,7 @@ async function handleAppointmentCreated(
   }
 
   if (patient) {
-    patient = await prisma.patient.update({
+    return prisma.patient.update({
       where: { id: patient.id },
       data: {
         mindbodyClientId,
@@ -89,15 +98,9 @@ async function handleAppointmentCreated(
         email: email ?? patient.email,
       },
     });
-
-    console.log(
-      `[Mindbody] Matched existing patient ${patient.id} to client ${mindbodyClientId}.`
-    );
-
-    return patient;
   }
 
-  patient = await prisma.patient.create({
+  return prisma.patient.create({
     data: {
       tenantId,
       name,
@@ -106,10 +109,69 @@ async function handleAppointmentCreated(
       mindbodyClientId,
     },
   });
+}
 
-  console.log(
-    `[Mindbody] Created patient ${patient.id} for client ${mindbodyClientId}.`
-  );
+async function handleAppointmentEvent(
+  tenantId: string,
+  payload: MindbodyWebhookPayload
+) {
+  const data = payload.eventData;
+  if (!data) return;
 
-  return patient;
+  const patient = await resolvePatient(tenantId, payload);
+  if (!patient) return;
+
+  // Scheduled and rescheduled appointments update the patient mapping only.
+  // Follow-up workflows begin only after Mindbody reports completion.
+  if (!isCompletedAppointment(payload)) {
+    return patient;
+  }
+
+  const appointmentId = String(data.appointmentId ?? "").trim();
+  const service = String(data.appointmentName ?? "").trim();
+  const startDateTime = String(data.startDateTime ?? "").trim();
+
+  if (!appointmentId || !service || !startDateTime) {
+    console.warn(
+      "[Mindbody] Completed appointment is missing ID, service, or start date."
+    );
+    return patient;
+  }
+
+  const eventDate = new Date(startDateTime);
+
+  if (Number.isNaN(eventDate.getTime())) {
+    console.warn("[Mindbody] Appointment start date is invalid.");
+    return patient;
+  }
+
+  const config = await prisma.mindbodyConfig.findUnique({
+    where: { tenantId },
+  });
+
+  // Appointments before the configured lookback date update the patient mapping
+  // but do not create a workflow or tasks.
+  if (
+    config?.workflowCutoffDate &&
+    eventDate < config.workflowCutoffDate
+  ) {
+    return patient;
+  }
+
+  const provider =
+    `${String(data.staffFirstName ?? "").trim()} ${String(
+      data.staffLastName ?? ""
+    ).trim()}`.trim() || null;
+
+  return createWorkflowRecord({
+    tenantId,
+    patientId: patient.id,
+    patientEvent: "Treatment Completed",
+    service,
+    eventDate,
+    provider,
+    mindbodyAppointmentId: appointmentId,
+    skipPastDueTasks: true,
+    notes: "Created automatically from Mindbody.",
+  });
 }
