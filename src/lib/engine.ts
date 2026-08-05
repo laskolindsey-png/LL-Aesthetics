@@ -13,6 +13,56 @@ import { addDays, startOfDay } from "./dates";
  * anchor resolves to that date — which is correct for all current rules. When we
  * add multi-anchor events (Phase 3), this is the single function to extend.
  */
+// Mindbody service names often don't exactly match a Service Rule name — they add
+// a size/tier suffix ("Laser Hair Removal Sm"), a brand tag ("PRX (WiQO)"), or use a
+// different family name ("HydraFacial Signature"). This resolver routes those to the
+// correct rule instead of dropping them into the generic fallback.
+
+// Strip a "Category | Service" prefix, keeping the service portion.
+function canonicalService(raw: string): string {
+  return (raw.split("|").pop() ?? raw).trim();
+}
+
+// Explicit routes for names that don't share a prefix with any rule.
+// Matched when the (lowercased) service name STARTS WITH the given prefix.
+const SERVICE_ALIASES: { prefix: string; rule: string }[] = [
+  // All PRX (incl. "PRX (WiQO)") share the same aftercare.
+  { prefix: "prx", rule: "PRX Package (Non-Member)" },
+  // Named facials that all follow the facial rule.
+  { prefix: "hydrafacial", rule: "Facial (Non-Member)" },
+  { prefix: "honey enzyme", rule: "Facial (Non-Member)" },
+  { prefix: "foaming enzyme", rule: "Facial (Non-Member)" },
+  { prefix: "fire and ice", rule: "Facial (Non-Member)" },
+];
+
+/**
+ * Map a raw Mindbody service name to a known rule service name, or null.
+ * Order: exact → explicit alias → rule-name prefix ("Laser Hair Removal Sm"
+ * → "Laser Hair Removal"), preferring the most specific (longest) rule.
+ */
+function resolveRuleService(rawService: string, ruleNames: string[]): string | null {
+  const lower = canonicalService(rawService).toLowerCase();
+  if (!lower) return null;
+
+  const exact = ruleNames.find((r) => r.toLowerCase() === lower);
+  if (exact) return exact;
+
+  for (const a of SERVICE_ALIASES) {
+    if (lower.startsWith(a.prefix)) {
+      const target = ruleNames.find((r) => r.toLowerCase() === a.rule.toLowerCase());
+      if (target) return target;
+    }
+  }
+
+  const prefixMatch = ruleNames
+    .filter((r) => {
+      const rl = r.toLowerCase();
+      return lower === rl || lower.startsWith(rl + " ");
+    })
+    .sort((a, b) => b.length - a.length)[0];
+  return prefixMatch ?? null;
+}
+
 export async function findMatchingRules(
   tenantId: string,
   patientEvent: string,
@@ -23,10 +73,27 @@ export async function findMatchingRules(
     where: { tenantId, patientEvent, service, active: true },
     orderBy: { step: "asc" },
   });
+  if (rules.length > 0) return rules;
 
-  // Fall back to the "General Follow-Up" sequence for a completed treatment
-  // whose specific service has no rules of its own.
-  if (rules.length === 0 && patientEvent === "Treatment Completed") {
+  if (patientEvent === "Treatment Completed") {
+    // Resolve a variant/alias name (e.g. "Laser Hair Removal Sm", "PRX (WiQO)",
+    // "HydraFacial Signature") to a real rule before falling back to generic.
+    const known = await prisma.serviceRule.findMany({
+      where: { tenantId, patientEvent, active: true },
+      select: { service: true },
+      distinct: ["service"],
+    });
+    const names = known.map((r) => r.service).filter((n) => n !== "General Follow-Up");
+    const resolved = resolveRuleService(service, names);
+    if (resolved) {
+      rules = await prisma.serviceRule.findMany({
+        where: { tenantId, patientEvent, service: resolved, active: true },
+        orderBy: { step: "asc" },
+      });
+      if (rules.length > 0) return rules;
+    }
+
+    // Generic safety net for a completed treatment with no matching rule at all.
     rules = await prisma.serviceRule.findMany({
       where: { tenantId, patientEvent, service: "General Follow-Up", active: true },
       orderBy: { step: "asc" },
