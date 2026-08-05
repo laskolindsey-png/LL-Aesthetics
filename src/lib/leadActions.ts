@@ -87,7 +87,10 @@ export async function setLeadStage(formData: FormData) {
   const stage = String(formData.get("stage") ?? "").trim();
   const lead = await prisma.lead.findFirst({ where: { id, tenantId } });
   if (!lead) throw new Error("Lead not found.");
-  await prisma.lead.update({ where: { id }, data: { stage } });
+  const data: { stage: string; firstContactedAt?: Date } = { stage };
+  // Stamp the first-contacted date the first time they're moved to "Contacted".
+  if (stage === "Contacted" && !lead.firstContactedAt) data.firstContactedAt = new Date();
+  await prisma.lead.update({ where: { id }, data });
   revalidateLeadViews();
 }
 
@@ -108,17 +111,72 @@ export async function markLeadBooked(formData: FormData) {
   revalidateLeadViews();
 }
 
-/** Lead went cold — close it and stop pending follow-ups. */
+/** Lead went cold — close it (with an optional reason) and stop pending follow-ups. */
 export async function markLeadLost(formData: FormData) {
   const tenantId = await getCurrentTenantId();
   const id = String(formData.get("leadId") ?? "");
+  const reason = String(formData.get("lostReason") ?? "").trim() || null;
   const lead = await prisma.lead.findFirst({ where: { id, tenantId } });
   if (!lead) throw new Error("Lead not found.");
-  await prisma.lead.update({ where: { id }, data: { stage: "Lost" } });
+  await prisma.lead.update({ where: { id }, data: { stage: "Lost", lostReason: reason } });
   await prisma.task.updateMany({
     where: { leadId: id, status: { not: "Completed" } },
     data: { status: "Cancelled" },
   });
+  revalidateLeadViews();
+}
+
+/** Archive a lead — hide it from the active pipeline without deleting. Pending follow-ups stop. */
+export async function archiveLead(formData: FormData) {
+  const tenantId = await getCurrentTenantId();
+  const id = String(formData.get("leadId") ?? "");
+  const lead = await prisma.lead.findFirst({ where: { id, tenantId } });
+  if (!lead) throw new Error("Lead not found.");
+  await prisma.lead.update({ where: { id }, data: { archivedAt: new Date() } });
+  await prisma.task.updateMany({
+    where: { leadId: id, status: { notIn: ["Completed", "Cancelled"] } },
+    data: { status: "Cancelled" },
+  });
+  revalidateLeadViews();
+  redirect("/leads");
+}
+
+/** Restore an archived lead back into the active view. Does not recreate its follow-ups. */
+export async function unarchiveLead(formData: FormData) {
+  const tenantId = await getCurrentTenantId();
+  const id = String(formData.get("leadId") ?? "");
+  const lead = await prisma.lead.findFirst({ where: { id, tenantId } });
+  if (!lead) throw new Error("Lead not found.");
+  await prisma.lead.update({ where: { id }, data: { archivedAt: null } });
+  revalidateLeadViews();
+}
+
+/** Put outreach On Hold or mark Do Not Contact (pauses pending follow-ups + flags the team). Empty value clears it. */
+export async function setContactHold(formData: FormData) {
+  const tenantId = await getCurrentTenantId();
+  const id = String(formData.get("leadId") ?? "");
+  const value = String(formData.get("contactHold") ?? "").trim() || null;
+  const lead = await prisma.lead.findFirst({ where: { id, tenantId } });
+  if (!lead) throw new Error("Lead not found.");
+  await prisma.lead.update({ where: { id }, data: { contactHold: value } });
+  // Holding or Do-Not-Contact stops any pending outreach; clearing it leaves things as they are.
+  if (value) {
+    await prisma.task.updateMany({
+      where: { leadId: id, status: { notIn: ["Completed", "Cancelled"] } },
+      data: { status: "Cancelled" },
+    });
+  }
+  revalidateLeadViews();
+}
+
+/** Record whether the lead has responded to outreach. Empty value clears it. */
+export async function setResponseStatus(formData: FormData) {
+  const tenantId = await getCurrentTenantId();
+  const id = String(formData.get("leadId") ?? "");
+  const value = String(formData.get("responseStatus") ?? "").trim() || null;
+  const lead = await prisma.lead.findFirst({ where: { id, tenantId } });
+  if (!lead) throw new Error("Lead not found.");
+  await prisma.lead.update({ where: { id }, data: { responseStatus: value } });
   revalidateLeadViews();
 }
 

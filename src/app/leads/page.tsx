@@ -22,7 +22,7 @@ export default async function LeadsPage({
     prisma.setting.findMany({ where: { tenantId, type: "LeadSource", active: true }, orderBy: { sortOrder: "asc" } }),
     prisma.setting.findMany({ where: { tenantId, type: "AssignedTo", active: true }, orderBy: { sortOrder: "asc" } }),
     prisma.lead.findMany({
-      where: showAll ? { tenantId } : { tenantId, stage: { notIn: ["Booked", "Lost"] } },
+      where: showAll ? { tenantId } : { tenantId, stage: { notIn: ["Booked", "Lost"] }, archivedAt: null },
       include: { tasks: { orderBy: { dueDate: "asc" } } },
       orderBy: { createdAt: "desc" },
     }),
@@ -86,7 +86,20 @@ export default async function LeadsPage({
                       </td>
                       <td className="px-4 py-3 text-muted">{l.source || "—"}</td>
                       <td className="px-4 py-3">
-                        <Badge tone={stageTone(l.stage)}>{l.stage}</Badge>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <Badge tone={stageTone(l.stage)}>{l.stage}</Badge>
+                          {l.contactHold && (
+                            <span title={l.contactHold} className="text-xs">
+                              {l.contactHold === "Do Not Contact" ? "🚫" : "⏸"}
+                            </span>
+                          )}
+                          {l.responseStatus === "No response" && (
+                            <span title="No response yet" className="text-xs text-[#9a6f28]">
+                              ⚠
+                            </span>
+                          )}
+                          {l.archivedAt && <Badge tone="neutral">Archived</Badge>}
+                        </div>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         {next ? (

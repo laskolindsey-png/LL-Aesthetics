@@ -306,6 +306,13 @@ model Lead {
   createdAt   DateTime  @default(now())
   convertedAt DateTime?
 
+  // Follow-up management (all optional / additive).
+  firstContactedAt DateTime? // when someone first reached out; auto-set when moved to "Contacted"
+  lostReason       String? // why the lead was marked Lost (feeds future KPIs)
+  archivedAt       DateTime? // hidden from the active pipeline but retained; restorable
+  contactHold      String? // null = active · "On Hold" (sequence paused) · "Do Not Contact"
+  responseStatus   String? // null = unknown · "Responded" · "No response"
+
   tasks Task[]
 
   @@index([tenantId, stage])
