@@ -59,6 +59,28 @@ export async function createLead(formData: FormData) {
   redirect("/leads");
 }
 
+/** Fix a lead's details (typo, phone, email, source, etc.) without touching its stage or follow-ups. */
+export async function editLead(formData: FormData) {
+  const tenantId = await getCurrentTenantId();
+  const id = String(formData.get("leadId") ?? "");
+  const lead = await prisma.lead.findFirst({ where: { id, tenantId } });
+  if (!lead) throw new Error("Lead not found.");
+
+  const name = String(formData.get("name") ?? "").trim();
+  if (!name) throw new Error("Lead name is required.");
+  const phone = String(formData.get("phone") ?? "").trim() || null;
+  const email = String(formData.get("email") ?? "").trim() || null;
+  const source = String(formData.get("source") ?? "").trim() || null;
+  const assignedTo = String(formData.get("assignedTo") ?? "").trim() || null;
+  const notes = String(formData.get("notes") ?? "").trim() || null;
+
+  await prisma.lead.update({
+    where: { id },
+    data: { name, phone, email, source, assignedTo, notes },
+  });
+  revalidateLeadViews();
+}
+
 export async function setLeadStage(formData: FormData) {
   const tenantId = await getCurrentTenantId();
   const id = String(formData.get("leadId") ?? "");

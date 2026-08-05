@@ -19,6 +19,9 @@ export default async function TasksPage() {
       where: {
         tenantId,
         status: { notIn: ["Completed", "Cancelled"] },
+        // Leads live on the Leads page — keep their greeting/nurture follow-ups
+        // out of the daily clinical task list so they don't flood it.
+        leadId: null,
         OR: [{ dueDate: { lt: horizon } }, { dueDate: null }],
       },
       include: { record: { include: { patient: true } }, lead: true, peptideOrder: true, toxPatient: true },

@@ -3,7 +3,7 @@ import { getCurrentTenantId } from "@/lib/tenant";
 import { formatDate, daysUntil } from "@/lib/dates";
 import { Badge, priorityTone } from "@/components/Badge";
 import { completeTask } from "@/lib/actions";
-import { setLeadStage, markLeadBooked, markLeadLost, deleteLead } from "@/lib/leadActions";
+import { setLeadStage, markLeadBooked, markLeadLost, deleteLead, editLead } from "@/lib/leadActions";
 import { OPEN_STAGES, stageTone } from "@/lib/leadStage";
 import { notFound } from "next/navigation";
 import Link from "next/link";
@@ -50,6 +50,41 @@ export default async function LeadDetail({
           <p className="mt-3 rounded-lg bg-canvas px-3 py-2 text-sm text-ink">{lead.notes}</p>
         )}
       </div>
+
+      {/* Edit details — fix a typo, phone, email, etc. without changing stage or follow-ups */}
+      <details className="card p-4">
+        <summary className="cursor-pointer text-sm font-semibold text-ink">✏️ Edit lead details</summary>
+        <form action={editLead} className="mt-3 grid gap-3 sm:grid-cols-2">
+          <input type="hidden" name="leadId" value={lead.id} />
+          <label className="text-xs text-muted">
+            Name
+            <input name="name" defaultValue={lead.name} required className="input mt-1 w-full" />
+          </label>
+          <label className="text-xs text-muted">
+            Phone
+            <input name="phone" defaultValue={lead.phone ?? ""} className="input mt-1 w-full" />
+          </label>
+          <label className="text-xs text-muted">
+            Email
+            <input name="email" defaultValue={lead.email ?? ""} className="input mt-1 w-full" />
+          </label>
+          <label className="text-xs text-muted">
+            Source
+            <input name="source" defaultValue={lead.source ?? ""} className="input mt-1 w-full" />
+          </label>
+          <label className="text-xs text-muted">
+            Assigned to
+            <input name="assignedTo" defaultValue={lead.assignedTo ?? ""} className="input mt-1 w-full" />
+          </label>
+          <label className="text-xs text-muted sm:col-span-2">
+            Notes
+            <textarea name="notes" defaultValue={lead.notes ?? ""} rows={2} className="input mt-1 w-full" />
+          </label>
+          <div className="flex justify-end sm:col-span-2">
+            <button className="btn-primary py-1.5 text-xs">Save changes</button>
+          </div>
+        </form>
+      </details>
 
       {/* Stage controls */}
       {!closed && (
