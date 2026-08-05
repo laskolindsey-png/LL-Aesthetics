@@ -17,6 +17,17 @@ type MindbodyWebhookPayload = {
     staffLastName?: string;
     startDateTime?: string;
     endDateTime?: string;
+
+    saleId?: number;
+    saleDateTime?: string;
+    appointmentIds?: number[];
+    items?: Array<{
+      type?: string;
+      name?: string;
+      quantity?: number;
+      amountPaid?: number;
+      recipientClientId?: string;
+    }>;
   };
 };
 
@@ -41,8 +52,12 @@ export async function processMindbodyWebhook(
     case "appointmentBooking.created":
     case "appointmentBooking.updated":
       return handleAppointmentEvent(tenantId, payload);
+
     case "appointmentBooking.cancelled":
       return handleAppointmentCancelled(tenantId, payload);
+
+    case "clientSale.created":
+      return handleClientSaleCreated(tenantId, payload);
 
     default:
       return;
@@ -223,5 +238,88 @@ async function handleAppointmentCancelled(
         .filter(Boolean)
         .join(" · "),
     },
+  });
+}
+
+function normalizeServiceName(service: string): string {
+  return service
+    .split("|")
+    .pop()
+    ?.trim() ?? service.trim();
+}
+
+async function handleClientSaleCreated(
+  tenantId: string,
+  payload: MindbodyWebhookPayload
+) {
+  const data = payload.eventData;
+  if (!data) return;
+
+  const appointmentId = String(data.appointmentIds?.[0] ?? "").trim();
+
+  const serviceItem = data.items?.find(
+    (item) =>
+      String(item.type ?? "").toLowerCase() === "service" &&
+      String(item.name ?? "").trim()
+  );
+
+  const service = normalizeServiceName(
+    String(serviceItem?.name ?? "")
+  );
+
+  const mindbodyClientId = String(
+    serviceItem?.recipientClientId ?? data.clientUniqueId ?? ""
+  ).trim();
+
+  const saleDateTime = String(data.saleDateTime ?? "").trim();
+
+  if (!appointmentId || !service || !mindbodyClientId || !saleDateTime) {
+    console.warn(
+      "[Mindbody] Sale event is missing appointment, service, client, or sale date."
+    );
+    return;
+  }
+
+  const eventDate = new Date(saleDateTime);
+
+  if (Number.isNaN(eventDate.getTime())) {
+    console.warn("[Mindbody] Sale date is invalid.");
+    return;
+  }
+
+  const patient = await prisma.patient.findFirst({
+    where: {
+      tenantId,
+      mindbodyClientId,
+    },
+  });
+
+  if (!patient) {
+    console.warn(
+      `[Mindbody] No patient mapping found for client ${mindbodyClientId}.`
+    );
+    return;
+  }
+
+  const config = await prisma.mindbodyConfig.findUnique({
+    where: { tenantId },
+  });
+
+  if (
+    config?.workflowCutoffDate &&
+    eventDate < config.workflowCutoffDate
+  ) {
+    return;
+  }
+
+  return createWorkflowRecord({
+    tenantId,
+    patientId: patient.id,
+    patientEvent: "Treatment Completed",
+    service,
+    eventDate,
+    mindbodyAppointmentId: appointmentId,
+    skipPastDueTasks: true,
+    notes: "Created automatically from Mindbody checkout.",
   });
 }
