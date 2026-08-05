@@ -7,33 +7,61 @@ import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
+// KPI benchmark tiers — clay = Average, amber = Great, sage = Elite (your palette).
+type Grade = "average" | "great" | "elite";
+
+function tierChipClass(grade: Grade): string {
+  return grade === "elite"
+    ? "border-success/30 bg-success/10 text-success"
+    : grade === "great"
+    ? "border-warning/30 bg-warning/10 text-[#9a6f28]"
+    : "border-danger/30 bg-danger/10 text-danger";
+}
+function tierLabel(grade: Grade): string {
+  return grade === "elite" ? "Elite ★" : grade === "great" ? "Great" : "Average";
+}
+function tierValueColor(grade: Grade): string {
+  return grade === "elite" ? "text-success" : grade === "great" ? "text-warning" : "text-danger";
+}
+// Grade a higher-is-better metric against its Great and Elite thresholds.
+function gradeUp(value: number | null, greatMin: number, eliteMin: number): Grade | undefined {
+  if (value == null) return undefined;
+  if (value >= eliteMin) return "elite";
+  if (value >= greatMin) return "great";
+  return "average";
+}
+
 // A single KPI tile. `pending` marks metrics that need the Mindbody connection —
-// they show their definition and a "Mindbody" chip until data flows in.
+// they show their definition and a "Mindbody" chip until data flows in. `grade`
+// colors the tile by benchmark tier and shows the tier chip.
 function Kpi({
   label,
   value,
   sub,
   tone = "ink",
   pending = false,
+  grade,
 }: {
   label: string;
   value?: string;
   sub?: string;
   tone?: "ink" | "success" | "warning" | "danger" | "accent" | "muted";
   pending?: boolean;
+  grade?: Grade;
 }) {
-  const color =
-    tone === "success"
-      ? "text-success"
-      : tone === "warning"
-      ? "text-warning"
-      : tone === "danger"
-      ? "text-danger"
-      : tone === "accent"
-      ? "text-accent"
-      : tone === "muted"
-      ? "text-muted"
-      : "text-ink";
+  const color = grade
+    ? tierValueColor(grade)
+    : tone === "success"
+    ? "text-success"
+    : tone === "warning"
+    ? "text-warning"
+    : tone === "danger"
+    ? "text-danger"
+    : tone === "accent"
+    ? "text-accent"
+    : tone === "muted"
+    ? "text-muted"
+    : "text-ink";
   return (
     <div className="card p-4">
       <div className="flex items-start justify-between gap-2">
@@ -41,6 +69,14 @@ function Kpi({
         {pending ? (
           <span className="rounded-full border border-line px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-muted">
             Mindbody
+          </span>
+        ) : grade ? (
+          <span
+            className={`rounded-full border px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide ${tierChipClass(
+              grade
+            )}`}
+          >
+            {tierLabel(grade)}
           </span>
         ) : (
           <span className="rounded-full border border-success/30 bg-success/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-success">
@@ -110,6 +146,9 @@ export default async function InsightsPage() {
 
   const happyRate = toxChecked ? Math.round((toxHappy / toxChecked) * 100) : null;
   const conversion = totalLeads ? Math.round((bookedLeads / totalLeads) * 100) : null;
+  // Grade the live metrics that have benchmarks (higher is better).
+  const happyGrade = gradeUp(happyRate, 75, 90);
+  const conversionGrade = gradeUp(conversion, 40, 50);
   const topSources = leadSources
     .filter((s) => s.source)
     .sort((a, b) => b._count._all - a._count._all)
@@ -144,6 +183,22 @@ export default async function InsightsPage() {
           </span>
           fills in when connected
         </span>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted">
+        <span>Benchmark tiers:</span>
+        <span className="rounded-full border border-danger/30 bg-danger/10 px-1.5 py-0.5 font-medium uppercase text-danger">
+          Average
+        </span>
+        <span>→</span>
+        <span className="rounded-full border border-warning/30 bg-warning/10 px-1.5 py-0.5 font-medium uppercase text-[#9a6f28]">
+          Great
+        </span>
+        <span>→</span>
+        <span className="rounded-full border border-success/30 bg-success/10 px-1.5 py-0.5 font-medium uppercase text-success">
+          Elite ★
+        </span>
+        <span>· graded against benchmarks for a spa your size</span>
       </div>
 
       {/* Revenue */}
@@ -187,6 +242,7 @@ export default async function InsightsPage() {
             label="Botox happy rate"
             value={happyRate == null ? "—" : `${happyRate}%`}
             tone="success"
+            grade={happyGrade}
             sub="Happy ÷ all checked (from the tracker)"
           />
           <Kpi
@@ -235,6 +291,7 @@ export default async function InsightsPage() {
             label="Lead → booked"
             value={conversion == null ? "—" : `${conversion}%`}
             tone="accent"
+            grade={conversionGrade}
             sub="Share of leads that became patients"
           />
           <Kpi label="Cost per acquisition" pending sub="Ad spend ÷ new patients (needs spend input)" />
