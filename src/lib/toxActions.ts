@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 import { getCurrentTenantId } from "./tenant";
 import { fromDateInput, monthsAgo, todayStart } from "./dates";
@@ -323,63 +324,95 @@ export async function importToxCsv(formData: FormData) {
   const iStatus = col("status", "patient happy?", "happy", "color");
   const iClub = col("club", "member", "initial treatment");
   const iBooked = col("two week booked?", "two week booked", "booked");
-  const iDate = col("two week date", "date");
+  const iTwoWeek = col("two week date", "2 week date", "two-week date");
+  // The last time the patient was seen — fills the tracker's date column and the
+  // 6-month reactivation clock.
+  const iLastVisit = col(
+    "last visit", "last seen", "last appointment", "last appt",
+    "last date", "last check", "date"
+  );
   const iComments = col("comments", "comment", "notes");
   if (iName < 0) redirect("/tox/import?error=noname");
+
+  const parseDate = (raw: string): Date | null => {
+    const s = (raw ?? "").trim();
+    if (!s) return null;
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? null : d;
+  };
 
   if (replace) {
     await prisma.toxPatient.deleteMany({ where: { tenantId } });
   }
 
   let created = 0;
+  let updated = 0;
   for (const r of rows.slice(1)) {
     const name = (r[iName] ?? "").trim();
     if (!name) continue;
-    const statusRaw = iStatus >= 0 ? r[iStatus] ?? "" : "";
-    const status = normalizeToxStatus(statusRaw);
+
+    const hasStatus = iStatus >= 0;
+    const status = hasStatus ? normalizeToxStatus(r[iStatus] ?? "") : undefined;
     const clubRaw = iClub >= 0 ? (r[iClub] ?? "") : "";
-    const isClubMember = /club/i.test(clubRaw);
-    const dateRaw = iDate >= 0 ? (r[iDate] ?? "").trim() : "";
-    let twoWeekDate: Date | null = null;
-    if (dateRaw) {
-      const d = new Date(dateRaw);
-      if (!isNaN(d.getTime())) twoWeekDate = d;
-    }
+    const twoWeekDate = iTwoWeek >= 0 ? parseDate(r[iTwoWeek] ?? "") : null;
+    const lastVisit = iLastVisit >= 0 ? parseDate(r[iLastVisit] ?? "") : null;
     const notes = iComments >= 0 ? (r[iComments] ?? "").trim() || null : null;
 
+    // Merge into an existing patient (matched by name) unless we just wiped all.
+    const existing = replace
+      ? null
+      : await prisma.toxPatient.findFirst({
+          where: { tenantId, name: { equals: name, mode: "insensitive" } },
+        });
+
+    if (existing) {
+      // Update only the fields the sheet actually provides — never blank out data.
+      const data: Prisma.ToxPatientUpdateInput = {};
+      if (hasStatus && status) data.status = status;
+      if (iClub >= 0) {
+        data.isClubMember = /club/i.test(clubRaw);
+        if (clubRaw.trim()) data.initialTreatment = clubRaw.trim();
+      }
+      if (iBooked >= 0) data.twoWeekBooked = truthy(r[iBooked] ?? "");
+      if (twoWeekDate) data.twoWeekDate = twoWeekDate;
+      if (notes) data.notes = notes;
+      if (lastVisit) {
+        data.lastVisitDate = lastVisit;
+        data.lastCheckDate = lastVisit;
+      }
+      if (Object.keys(data).length > 0) {
+        await prisma.toxPatient.update({ where: { id: existing.id }, data });
+        updated++;
+      }
+      continue;
+    }
+
+    // New patient. Prefer the explicit last-visit date; fall back to the two-week date.
+    const seen = lastVisit ?? twoWeekDate;
     const patient = await prisma.toxPatient.create({
       data: {
         tenantId,
         name,
         phone: iPhone >= 0 ? (r[iPhone] ?? "").trim() || null : null,
         initialTreatment: iClub >= 0 ? clubRaw.trim() || null : null,
-        isClubMember,
+        isClubMember: /club/i.test(clubRaw),
         twoWeekBooked: iBooked >= 0 ? truthy(r[iBooked] ?? "") : false,
         twoWeekDate,
         notes,
-        status,
-        // Only record a check date when the sheet actually has one — never invent
-        // "today," which would make every imported patient look freshly seen.
-        lastCheckDate: status !== "awaiting" && twoWeekDate ? twoWeekDate : null,
-        // Best available "last seen" signal from the sheet: the two-week date.
-        lastVisitDate: twoWeekDate ?? null,
+        status: status ?? "awaiting",
+        // Record a check date only when the sheet has a real date — never invent "today."
+        lastCheckDate: seen && status && status !== "awaiting" ? seen : lastVisit,
+        lastVisitDate: seen ?? null,
       },
     });
-    // Seed a history entry only when we have a real date; otherwise the color is
-    // still set on the patient, but we don't fabricate a dated check.
-    if (status !== "awaiting" && twoWeekDate) {
+    // Seed a history entry only when we have a real dated check.
+    if (status && status !== "awaiting" && seen) {
       await prisma.toxCheck.create({
-        data: {
-          tenantId,
-          toxPatientId: patient.id,
-          status,
-          note: notes,
-          checkDate: twoWeekDate,
-        },
+        data: { tenantId, toxPatientId: patient.id, status, note: notes, checkDate: seen },
       });
     }
     created++;
   }
   revalidatePath("/tox");
-  redirect(`/tox?imported=${created}`);
+  redirect(`/tox?imported=${created}&updated=${updated}`);
 }

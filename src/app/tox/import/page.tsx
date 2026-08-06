@@ -45,6 +45,10 @@ export default async function ToxImportPage({
             The <strong>Status</strong> column carries the color: <em>Happy</em>,{" "}
             <em>Not Happy</em>, <em>Tough</em>, or blank for awaiting.
           </li>
+          <li>
+            Add a <strong>Last Visit</strong> column (a date like 7/28/2026) to fill
+            each patient&apos;s date and 6-month reactivation clock.
+          </li>
           <li>Choose the file below and click Import.</li>
         </ol>
       </div>
@@ -65,8 +69,9 @@ export default async function ToxImportPage({
           Replace everything currently in the tracker (start fresh from this file)
         </label>
         <p className="text-xs text-muted">
-          Leave the box unchecked to add these patients alongside any already in
-          the tracker.
+          Leave unchecked to <strong>update existing patients by name</strong> — e.g.
+          upload just <em>Name + Last Visit</em> to fill in dates on patients already
+          in your tracker — and add any new ones. (Matches on name.)
         </p>
         <div className="flex justify-end">
           <button className="btn-primary">Import patients</button>

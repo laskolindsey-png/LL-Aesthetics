@@ -65,9 +65,9 @@ function Kpi({
 export default async function ToxPage({
   searchParams,
 }: {
-  searchParams: Promise<{ filter?: string; q?: string; imported?: string; reactivated?: string }>;
+  searchParams: Promise<{ filter?: string; q?: string; imported?: string; updated?: string; reactivated?: string }>;
 }) {
-  const { filter, q, imported, reactivated } = await searchParams;
+  const { filter, q, imported, updated, reactivated } = await searchParams;
   const key = filter ?? "all";
   const isReactivate = key === "reactivate";
   const tenantId = await getCurrentTenantId();
@@ -125,9 +125,17 @@ export default async function ToxPage({
         </Link>
       </div>
 
-      {imported && (
+      {(imported || updated) && (
         <div className="rounded-lg border border-success/30 bg-success/10 px-4 py-3 text-sm text-success">
-          Imported {imported} patient{imported === "1" ? "" : "s"} from your spreadsheet.
+          {imported && imported !== "0" && (
+            <>Imported {imported} new patient{imported === "1" ? "" : "s"}. </>
+          )}
+          {updated && updated !== "0" && (
+            <>Updated {updated} existing patient{updated === "1" ? "" : "s"} (dates/status filled in). </>
+          )}
+          {(!imported || imported === "0") && (!updated || updated === "0") && (
+            <>No changes were made — double-check your column headers (e.g. a “Last Visit” date column).</>
+          )}
         </div>
       )}
       {reactivated && (
