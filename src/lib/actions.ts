@@ -10,6 +10,25 @@ import { fromDateInput } from "./dates";
 import { createWorkflowRecord } from "./workflowService";
 
 /**
+ * Add a patient by hand — for people who aren't in Mindbody yet (e.g. a new
+ * client whose Aura scan you want to upload before their first visit).
+ */
+export async function createPatient(formData: FormData) {
+  const tenantId = await getCurrentTenantId();
+  const name = String(formData.get("name") ?? "").trim();
+  if (!name) throw new Error("Patient name is required.");
+  const phone = String(formData.get("phone") ?? "").trim() || null;
+  const email = String(formData.get("email") ?? "").trim() || null;
+
+  const patient = await prisma.patient.create({
+    data: { tenantId, name, phone, email },
+  });
+
+  revalidatePath("/patients");
+  redirect(`/patients/${patient.id}`);
+}
+
+/**
  * Record a new patient event and auto-generate its follow-up tasks.
  * This is the workbook's "New Treatment Entry" — the moment the engine fires.
  */
