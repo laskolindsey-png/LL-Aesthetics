@@ -35,9 +35,13 @@ const SERVICE_ALIASES: { prefix: string; rule: string }[] = [
   { prefix: "fire and ice", rule: "Facial (Non-Member)" },
 ];
 
-// Quick cosmetic services that need no aftercare — a completed appointment for
-// these should NOT create any follow-up tasks (they were landing in the generic
-// "General Follow-Up" and cluttering Today's Tasks with a bogus Post-Care step).
+// Services that should NOT create any follow-up on their own. Two kinds:
+//  • Quick cosmetic services with no aftercare (brows, lashes, waxing, tinting).
+//    They were landing in the generic "General Follow-Up" and cluttering Today's
+//    Tasks with a bogus Post-Care step.
+//  • Pre-procedure protocols like the Good Faith Exam — required BEFORE an
+//    injectable/laser, but not the treatment itself. The follow-ups belong to
+//    the procedure that comes with it, which is routed on its own.
 // Matched when the (lowercased) service name CONTAINS one of these words.
 const NO_FOLLOWUP_KEYWORDS = [
   "brow",
@@ -45,6 +49,7 @@ const NO_FOLLOWUP_KEYWORDS = [
   "wax",
   "tint",
   "lamination",
+  "good faith",
 ];
 
 function needsNoFollowUp(rawService: string): boolean {

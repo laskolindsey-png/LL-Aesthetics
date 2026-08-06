@@ -381,6 +381,13 @@ function normalizeServiceName(service: string): string {
     ?.trim() ?? service.trim();
 }
 
+// A Good Faith Exam is a required pre-procedure protocol, not the treatment.
+// When a checkout bundles it with the actual procedure, the follow-up rules
+// should follow the procedure — so we skip the GFE line item when picking one.
+function isGoodFaithExam(name: string): boolean {
+  return /good\s*faith/i.test(name) || /\bgfe\b/i.test(name);
+}
+
 async function handleClientSaleCreated(
   tenantId: string,
   payload: MindbodyWebhookPayload
@@ -390,11 +397,18 @@ async function handleClientSaleCreated(
 
   const appointmentId = String(data.appointmentIds?.[0] ?? "").trim();
 
-  const serviceItem = data.items?.find(
+  const serviceItems = (data.items ?? []).filter(
     (item) =>
       String(item.type ?? "").toLowerCase() === "service" &&
       String(item.name ?? "").trim()
   );
+
+  // Prefer the actual procedure over a Good Faith Exam line item, so the rules
+  // follow the treatment the GFE was clearing the patient for. If the checkout
+  // is a GFE only, fall back to it (the engine's no-follow-up list handles it).
+  const serviceItem =
+    serviceItems.find((item) => !isGoodFaithExam(String(item.name ?? ""))) ??
+    serviceItems[0];
 
   const service = normalizeServiceName(
     String(serviceItem?.name ?? "")
