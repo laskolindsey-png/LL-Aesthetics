@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentTenantId } from "@/lib/tenant";
-import { todayStart, addDays, formatDate, daysUntil } from "@/lib/dates";
-import { money, REMINDER_WINDOW_DAYS } from "@/lib/plans";
+import { formatDate, daysUntil } from "@/lib/dates";
+import { money, isDueToBook } from "@/lib/plans";
 import { setPlanItemStatus, uploadAuraPlan } from "@/lib/planActions";
 import Link from "next/link";
 
@@ -19,18 +19,13 @@ function Kpi({ label, value, tone = "ink" }: { label: string; value: string; ton
 
 export default async function PlansPage() {
   const tenantId = await getCurrentTenantId();
-  const today = todayStart();
-  const horizon = addDays(today, REMINDER_WINDOW_DAYS);
 
-  const [dueItems, allRecommended, patients] = await Promise.all([
-    prisma.treatmentPlanItem.findMany({
-      where: { tenantId, status: "Recommended", targetDate: { lte: horizon } },
-      include: { plan: { include: { patient: true } } },
-      orderBy: { targetDate: "asc" },
-    }),
+  const [items, patients] = await Promise.all([
+    // Every unscheduled (recommended) treatment — the full pipeline, not just
+    // the ones due soon — so future-dated plans are visible too.
     prisma.treatmentPlanItem.findMany({
       where: { tenantId, status: "Recommended" },
-      select: { price: true },
+      include: { plan: { include: { patient: true } } },
     }),
     prisma.patient.findMany({
       where: { tenantId },
@@ -39,17 +34,27 @@ export default async function PlansPage() {
     }),
   ]);
 
-  const unscheduledValue = allRecommended.reduce((s, i) => s + (i.price ?? 0), 0);
-  const dueValue = dueItems.reduce((s, i) => s + (i.price ?? 0), 0);
-  const overdue = dueItems.filter((i) => i.targetDate && daysUntil(i.targetDate)! < 0).length;
+  // Soonest first; treatments with no target date sit at the bottom.
+  items.sort((a, b) => {
+    if (!a.targetDate && !b.targetDate) return 0;
+    if (!a.targetDate) return 1;
+    if (!b.targetDate) return -1;
+    return a.targetDate.getTime() - b.targetDate.getTime();
+  });
+
+  const unscheduledValue = items.reduce((s, i) => s + (i.price ?? 0), 0);
+  const dueItems = items.filter((i) => isDueToBook(i));
+  const overdue = items.filter((i) => i.targetDate && daysUntil(i.targetDate)! < 0).length;
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold text-ink">Aura Plans — To Book</h1>
         <p className="mt-1 text-sm text-muted">
-          Recommended treatments coming due that aren&apos;t scheduled yet. Reach
-          out, book them, then mark them scheduled to clear them from this list.
+          Every recommended treatment that isn&apos;t scheduled yet — soonest
+          first. The ones due within 3 weeks are flagged{" "}
+          <span className="font-medium text-warning">Book now</span>; future ones
+          are here too so nothing slips. Mark one <em>Booked</em> to clear it.
         </p>
       </div>
 
@@ -110,23 +115,34 @@ export default async function PlansPage() {
               </tr>
             </thead>
             <tbody>
-              {dueItems.length === 0 ? (
+              {items.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="px-4 py-10 text-center text-muted">
-                    Nothing to book right now. ✓
+                    No unscheduled treatments right now. ✓
                   </td>
                 </tr>
               ) : (
-                dueItems.map((it) => {
+                items.map((it) => {
                   const d = daysUntil(it.targetDate);
                   const late = d !== null && d < 0;
+                  const dueSoon = !late && isDueToBook(it);
                   return (
                     <tr key={it.id} className="border-b border-line/60 hover:bg-canvas/40">
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <span className={late ? "font-medium text-danger" : "text-ink"}>
-                          {formatDate(it.targetDate)}
+                        <span className={late ? "font-medium text-danger" : dueSoon ? "font-medium text-ink" : "text-muted"}>
+                          {it.targetDate ? formatDate(it.targetDate) : "No date"}
                         </span>
-                        {late && <span className="ml-1 text-xs text-danger">({Math.abs(d!)}d late)</span>}
+                        {late ? (
+                          <span className="ml-2 rounded-full bg-danger/10 px-2 py-0.5 text-[10px] font-medium text-danger">
+                            {Math.abs(d!)}d overdue
+                          </span>
+                        ) : dueSoon ? (
+                          <span className="ml-2 rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-medium text-[#9a6f28]">
+                            Book now
+                          </span>
+                        ) : d !== null ? (
+                          <span className="ml-2 text-[11px] text-muted">in {d}d</span>
+                        ) : null}
                       </td>
                       <td className="px-4 py-3">
                         <Link href={`/patients/${it.plan.patientId}`} className="font-medium text-ink hover:underline">
