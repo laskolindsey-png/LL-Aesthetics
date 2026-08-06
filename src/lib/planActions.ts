@@ -123,11 +123,22 @@ export async function uploadAuraPlan(formData: FormData) {
   const buffer = Buffer.from(await file.arrayBuffer());
 
   let items: Awaited<ReturnType<typeof parseAuraPdf>>["items"] = [];
+  // Capture WHY a scan didn't auto-build so it surfaces in the UI instead of a
+  // silent $0. "notext" = no text extracted (image-only PDF or extractor failed
+  // in this runtime); "nooverview" = text found but no OVERVIEW section matched;
+  // "error:<msg>" = the extractor threw (reveals runtime issues like pdfjs).
+  let scanDiag = "";
   try {
-    ({ items } = await parseAuraPdf(buffer));
+    const parsed = await parseAuraPdf(buffer);
+    items = parsed.items;
+    if (items.length === 0) {
+      const text = (parsed.text ?? "").trim();
+      scanDiag = text.length === 0 ? "notext" : "nooverview";
+    }
   } catch (e) {
     console.error("[uploadAuraPlan] parse failed:", e);
     items = []; // still store the file even if parsing hiccups
+    scanDiag = "error:" + String(e instanceof Error ? e.message : e).slice(0, 140);
   }
 
   // Store the file with the patient.
@@ -165,7 +176,8 @@ export async function uploadAuraPlan(formData: FormData) {
   }
 
   revalidatePlanViews(patientId);
-  redirect(`/patients/${patientId}?uploaded=${items.length}`);
+  const diag = items.length === 0 && scanDiag ? `&scan=${encodeURIComponent(scanDiag)}` : "";
+  redirect(`/patients/${patientId}?uploaded=${items.length}${diag}`);
 }
 
 export async function deletePlanDocument(formData: FormData) {

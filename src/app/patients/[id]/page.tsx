@@ -14,10 +14,10 @@ export default async function PatientDetail({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ uploaded?: string; planError?: string }>;
+  searchParams: Promise<{ uploaded?: string; planError?: string; scan?: string }>;
 }) {
   const { id } = await params;
-  const { uploaded, planError } = await searchParams;
+  const { uploaded, planError, scan } = await searchParams;
   const tenantId = await getCurrentTenantId();
 
   const [patient, actionResults, serviceSettings, documents] = await Promise.all([
@@ -70,11 +70,25 @@ export default async function PatientDetail({
         </div>
       </div>
 
-      {uploaded !== undefined && (
+      {uploaded !== undefined && Number(uploaded) > 0 && (
         <div className="rounded-lg border border-success/30 bg-success/10 px-4 py-3 text-sm text-success">
-          {Number(uploaded) > 0
-            ? `Aura scan uploaded — ${uploaded} treatment${uploaded === "1" ? "" : "s"} added to a new Aura Plan below. Review and adjust as needed.`
-            : "File uploaded and saved to this patient. (No treatments were auto-read — you can add them below.)"}
+          {`Aura scan uploaded — ${uploaded} treatment${uploaded === "1" ? "" : "s"} added to a new Aura Plan below. Review and adjust as needed.`}
+        </div>
+      )}
+      {uploaded !== undefined && Number(uploaded) === 0 && (
+        <div className="rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-ink">
+          <div className="font-medium">
+            Scan saved, but no treatments were auto-read — add them below.
+          </div>
+          <div className="mt-1 text-xs text-muted">
+            {scan === "notext"
+              ? "We couldn’t pull any text from this PDF — it may be a scanned image rather than a text export."
+              : scan === "nooverview"
+              ? "We read the file but couldn’t find the treatment “Overview” section to build from."
+              : scan?.startsWith("error:")
+              ? `The reader hit an error: ${scan.slice(6)}`
+              : "The reader didn’t return any treatments from this file."}
+          </div>
         </div>
       )}
       {planError === "nofile" && (
