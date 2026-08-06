@@ -15,6 +15,27 @@ import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// Flag a patient to double-check dosing when a Botox visit was ~2+ weeks ago but
+// no 2-week enhancement was booked for that cycle. Clears once they book one
+// (twoWeekBooked with a date on/after the last visit) and after ~5 weeks it's
+// moot, so the window keeps the flag from lingering forever.
+function needsDosingCheck(p: {
+  lastVisitDate: Date | null;
+  twoWeekBooked: boolean;
+  twoWeekDate: Date | null;
+}): boolean {
+  if (!p.lastVisitDate) return false;
+  const days = (Date.now() - p.lastVisitDate.getTime()) / DAY_MS;
+  if (days < 12 || days > 35) return false;
+  const bookedThisCycle =
+    p.twoWeekBooked &&
+    !!p.twoWeekDate &&
+    p.twoWeekDate.getTime() >= p.lastVisitDate.getTime();
+  return !bookedThisCycle;
+}
+
 const STATUS_FILTERS: Record<string, { label: string; where: object }> = {
   all: { label: "All", where: {} },
   happy: { label: "🟢 Happy", where: { status: "happy" } },
@@ -250,6 +271,14 @@ export default async function ToxPage({
                           {p.isClubMember && (
                             <span className="rounded bg-blush/40 px-1 py-0.5 text-[9px] font-medium text-clay">
                               ★
+                            </span>
+                          )}
+                          {needsDosingCheck(p) && (
+                            <span
+                              title="Botox visit ~2+ weeks ago with no 2-week enhancement booked — double-check dosing."
+                              className="rounded bg-warning/15 px-1.5 py-0.5 text-[9px] font-medium text-warning"
+                            >
+                              ⚑ check dosing
                             </span>
                           )}
                           {p.phone && <span className="text-[11px] text-muted">{p.phone}</span>}

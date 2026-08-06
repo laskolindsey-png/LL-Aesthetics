@@ -44,6 +44,114 @@ function isCompletedAppointment(payload: MindbodyWebhookPayload): boolean {
   return ["completed", "checked out", "checkout", "finished"].includes(status);
 }
 
+// --- Tox Tracker sync -------------------------------------------------------
+// The Tox Tracker's reactivation clock should be driven by real Mindbody visits,
+// not spreadsheet guesses. These helpers keep it current going forward: a Botox
+// visit stamps the patient's last-visit date (creating a tracker row if they're
+// new), and a booked "2 week enhancement" clears the dosing-check flag.
+
+function isBotoxService(service: string): boolean {
+  const s = service.toLowerCase();
+  return /\b(botox|dysport|jeuveau|xeomin|daxxify|neurotoxin|neuromodulator|wrinkle relaxer|lip flip|tox)\b/.test(
+    s
+  );
+}
+
+function isTwoWeekEnhancement(service: string): boolean {
+  const s = service.toLowerCase();
+  const twoWeek =
+    s.includes("2 week") ||
+    s.includes("two week") ||
+    s.includes("2-week") ||
+    s.includes("two-week");
+  return (
+    twoWeek &&
+    (s.includes("enhance") ||
+      s.includes("touch") ||
+      s.includes("follow") ||
+      s.includes("visit") ||
+      s.includes("check"))
+  );
+}
+
+// A Botox visit came in: stamp the tracker's last-visit date (forward only —
+// never move it backwards) and create a tracker row if the patient is new.
+// Matches an existing tracker row by patient link first, then by name.
+async function recordToxVisit(
+  tenantId: string,
+  patient: { id: string; name: string; phone: string | null },
+  eventDate: Date
+) {
+  let tox = await prisma.toxPatient.findFirst({
+    where: { tenantId, patientId: patient.id },
+  });
+  if (!tox) {
+    tox = await prisma.toxPatient.findFirst({
+      where: {
+        tenantId,
+        name: { equals: patient.name, mode: "insensitive" },
+      },
+    });
+  }
+
+  if (tox) {
+    const data: Record<string, unknown> = {};
+    if (!tox.patientId) data.patientId = patient.id;
+    if (!tox.lastVisitDate || tox.lastVisitDate < eventDate) {
+      data.lastVisitDate = eventDate;
+    }
+    if (Object.keys(data).length === 0) return tox;
+    try {
+      return await prisma.toxPatient.update({ where: { id: tox.id }, data });
+    } catch {
+      // A unique patient link may already be held by another row — retry
+      // without touching the link so the date still advances.
+      delete data.patientId;
+      if (Object.keys(data).length === 0) return tox;
+      return prisma.toxPatient.update({ where: { id: tox.id }, data });
+    }
+  }
+
+  return prisma.toxPatient.create({
+    data: {
+      tenantId,
+      name: patient.name,
+      phone: patient.phone,
+      patientId: patient.id,
+      status: "awaiting",
+      lastVisitDate: eventDate,
+    },
+  });
+}
+
+// A "2 week enhancement" was booked (or attended): mark it on the tracker so the
+// "check dosing" flag clears for this cycle. Only updates an existing row.
+async function markTwoWeekBooked(
+  tenantId: string,
+  patient: { id: string; name: string },
+  whenDate: Date | null
+) {
+  let tox = await prisma.toxPatient.findFirst({
+    where: { tenantId, patientId: patient.id },
+  });
+  if (!tox) {
+    tox = await prisma.toxPatient.findFirst({
+      where: {
+        tenantId,
+        name: { equals: patient.name, mode: "insensitive" },
+      },
+    });
+  }
+  if (!tox) return;
+  await prisma.toxPatient.update({
+    where: { id: tox.id },
+    data: {
+      twoWeekBooked: true,
+      twoWeekDate: whenDate ?? tox.twoWeekDate,
+    },
+  });
+}
+
 export async function processMindbodyWebhook(
   tenantId: string,
   payload: MindbodyWebhookPayload
@@ -138,6 +246,23 @@ async function handleAppointmentEvent(
   const patient = await resolvePatient(tenantId, payload);
   if (!patient) return;
 
+  const service = String(data.appointmentName ?? "").trim();
+
+  // A booked "2 week enhancement" clears the dosing-check flag for this cycle,
+  // whether or not the visit has happened yet — so run this before the
+  // completion gate below.
+  if (service && isTwoWeekEnhancement(service)) {
+    const startRaw = String(data.startDateTime ?? "").trim();
+    const startDate = startRaw ? new Date(startRaw) : null;
+    const when =
+      startDate && !Number.isNaN(startDate.getTime()) ? startDate : null;
+    try {
+      await markTwoWeekBooked(tenantId, patient, when);
+    } catch (err) {
+      console.warn("[Mindbody] Could not mark 2-week enhancement booking.", err);
+    }
+  }
+
   // Scheduled and rescheduled appointments update the patient mapping only.
   // Follow-up workflows begin only after Mindbody reports completion.
   if (!isCompletedAppointment(payload)) {
@@ -145,7 +270,6 @@ async function handleAppointmentEvent(
   }
 
   const appointmentId = String(data.appointmentId ?? "").trim();
-  const service = String(data.appointmentName ?? "").trim();
   const startDateTime = String(data.startDateTime ?? "").trim();
 
   if (!appointmentId || !service || !startDateTime) {
@@ -160,6 +284,15 @@ async function handleAppointmentEvent(
   if (Number.isNaN(eventDate.getTime())) {
     console.warn("[Mindbody] Appointment start date is invalid.");
     return patient;
+  }
+
+  // Keep the Tox Tracker's reactivation clock honest from real visits.
+  if (isBotoxService(service) || isTwoWeekEnhancement(service)) {
+    try {
+      await recordToxVisit(tenantId, patient, eventDate);
+    } catch (err) {
+      console.warn("[Mindbody] Could not sync Tox Tracker visit.", err);
+    }
   }
 
   const config = await prisma.mindbodyConfig.findUnique({
@@ -304,6 +437,15 @@ async function handleClientSaleCreated(
   const config = await prisma.mindbodyConfig.findUnique({
     where: { tenantId },
   });
+
+  // Keep the Tox Tracker current when Botox is sold at checkout.
+  if (isBotoxService(service) || isTwoWeekEnhancement(service)) {
+    try {
+      await recordToxVisit(tenantId, patient, eventDate);
+    } catch (err) {
+      console.warn("[Mindbody] Could not sync Tox Tracker visit from sale.", err);
+    }
+  }
 
   if (
     config?.workflowCutoffDate &&
