@@ -14,13 +14,22 @@ export type ParsedPlanItem = {
 };
 
 const DATE_RE = /(\d{2}\/\d{2}\/\d{4})/;
+// Prices print as "USD 1,500.00", "$1,500.00", or "1,500.00 USD" across exports.
+const PRICE_RE = /(?:USD|\$)\s*([\d,]+(?:\.\d{1,2})?)|([\d,]+(?:\.\d{1,2})?)\s*USD/i;
+function extractPrice(s: string): number | null {
+  const m = (s ?? "").match(PRICE_RE);
+  if (!m) return null;
+  const v = Number((m[1] ?? m[2] ?? "").replace(/,/g, ""));
+  return isNaN(v) ? null : v;
+}
 const isPageHeader = (l: string) =>
   /^-+\s*\d+\s*of\s*\d+\s*-+$/i.test(l) || /^\d{1,2}\s+\d{2}\/\d{2}\/\d{4}$/.test(l);
 
 /** Parse the OVERVIEW table out of an Aura plan's extracted text. */
 export function parseAuraOverview(text: string): ParsedPlanItem[] {
   const lines = text.split("\n").map((s) => s.trim()).filter(Boolean);
-  const start = lines.findIndex((l) => /^OVERVIEW$/i.test(l));
+  // Match "OVERVIEW" alone or a header ending in it (e.g. "TREATMENT PLAN OVERVIEW").
+  const start = lines.findIndex((l) => /^(?:.*\s)?OVERVIEW$/i.test(l));
   if (start < 0) return [];
 
   const items: ParsedPlanItem[] = [];
@@ -35,18 +44,23 @@ export function parseAuraOverview(text: string): ParsedPlanItem[] {
 
     const m = l.match(DATE_RE);
     if (m) {
-      const before = l.slice(0, m.index).trim();
+      // Treatment name is the text before the date, minus a price if it printed there.
+      const before = l
+        .slice(0, m.index)
+        .replace(/\s*(?:USD|\$)\s*[\d,]+(?:\.\d{1,2})?\s*$/i, "")
+        .trim();
       const treatment = [...pending, before].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
       const after = l.slice((m.index ?? 0) + m[0].length);
       const dur = after.match(/(\d+)\s*min/i);
-      const price = after.match(/USD\s*([\d,]+\.?\d*)/i);
+      // Price usually follows the date; fall back to scanning the whole line.
+      const price = extractPrice(after) ?? extractPrice(l);
       if (treatment) {
         items.push({
           category,
           treatment,
           date: m[1],
           durationMin: dur ? Number(dur[1]) : null,
-          price: price ? Number(price[1].replace(/,/g, "")) : null,
+          price,
         });
       }
       pending = [];
