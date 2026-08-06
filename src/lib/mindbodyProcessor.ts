@@ -1,5 +1,6 @@
 import { prisma } from "./prisma";
 import { createWorkflowRecord } from "./workflowService";
+import { classifyMindbodyItem, mindbodyKindToCategory } from "./finance";
 
 type MindbodyWebhookPayload = {
   eventId?: string;
@@ -390,25 +391,8 @@ function isGoodFaithExam(name: string): boolean {
 
 // --- Revenue capture --------------------------------------------------------
 // Turn a Mindbody checkout into revenue entries so daily/monthly totals fill in
-// automatically. Memberships are intentionally skipped: the dashboard already
-// counts them from active memberships (MRR), so capturing them here too would
-// double-count. Everything else maps to Service, Retail, or Other revenue.
-function classifyRevenue(
-  type: string,
-  name: string
-): { category: string; skip: boolean } {
-  const t = (type ?? "").toLowerCase();
-  const n = (name ?? "").toLowerCase();
-  if (t.includes("member") || n.includes("member") || t.includes("contract")) {
-    return { category: "Membership Revenue", skip: true };
-  }
-  if (t.includes("service")) return { category: "Service Revenue", skip: false };
-  if (t.includes("product") || t.includes("retail")) {
-    return { category: "Retail Sales", skip: false };
-  }
-  return { category: "Other Revenue", skip: false };
-}
-
+// automatically. Memberships DO count (real dues billed on the 1st/15th); only
+// tips and merchant/processing fees are skipped — they aren't practice revenue.
 async function recordSaleRevenue(
   tenantId: string,
   payload: MindbodyWebhookPayload
@@ -423,16 +407,14 @@ async function recordSaleRevenue(
   const saleDate = saleRaw ? new Date(saleRaw) : null;
   if (!saleDate || Number.isNaN(saleDate.getTime())) return;
 
-  // Sum non-membership line items by revenue category.
+  // Sum line items by revenue category, skipping tips and fees.
   const byCategory = new Map<string, number>();
   for (const item of data.items ?? []) {
     const amount = Number(item.amountPaid ?? 0);
     if (!amount || amount <= 0) continue;
-    const { category, skip } = classifyRevenue(
-      String(item.type ?? ""),
-      String(item.name ?? "")
-    );
-    if (skip) continue;
+    const kind = classifyMindbodyItem(String(item.name ?? ""));
+    if (kind === "tip" || kind === "fee") continue;
+    const category = mindbodyKindToCategory(kind);
     byCategory.set(category, (byCategory.get(category) ?? 0) + amount);
   }
 

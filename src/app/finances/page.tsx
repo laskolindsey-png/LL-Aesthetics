@@ -47,15 +47,29 @@ export default async function FinancesPage({
     prisma.expenseEntry.findMany({ where: { tenantId, date: { gte: start, lt: end } } }),
   ]);
 
-  // Revenue: auto (memberships + completed treatments) + manual entries.
+  // Revenue: recorded entries (Mindbody import/auto + manual) plus, only as a
+  // fallback, an estimate for anything not yet flowing from real data.
   const mrr = activeMembers.reduce((s, m) => s + (m.monthlyAmount ?? 0), 0);
-  const membershipRevenue = mrr * months;
+  const membershipEstimate = mrr * months;
   const serviceRevenue = completedItems.reduce((s, i) => s + (i.price ?? 0), 0);
 
   const revByCat = new Map<string, number>();
-  if (membershipRevenue > 0) revByCat.set("Membership Revenue", membershipRevenue);
-  if (serviceRevenue > 0) revByCat.set("Service Revenue (completed)", serviceRevenue);
+  // Real recorded revenue first (includes Mindbody memberships, service, retail).
   for (const r of manualRevenue) revByCat.set(r.category, (revByCat.get(r.category) ?? 0) + r.amount);
+
+  // Membership dues are billed on the 1st/15th and captured as real entries once
+  // Mindbody is flowing. Only fall back to the active-member estimate when we
+  // have no real membership revenue this period — so the two never double-count.
+  const membershipRecorded = revByCat.get("Membership Revenue") ?? 0;
+  const usingMembershipEstimate = membershipRecorded === 0 && membershipEstimate > 0;
+  if (usingMembershipEstimate) {
+    revByCat.set("Membership Revenue", membershipEstimate);
+  }
+
+  // Completed Aura-plan treatments (manual pipeline), kept as a distinct line.
+  if (serviceRevenue > 0) {
+    revByCat.set("Service Revenue (completed)", (revByCat.get("Service Revenue (completed)") ?? 0) + serviceRevenue);
+  }
 
   const totalRevenue = [...revByCat.values()].reduce((s, v) => s + v, 0);
 
@@ -148,13 +162,17 @@ export default async function FinancesPage({
         </section>
       </div>
 
-      {membershipRevenue > 0 && (
+      {usingMembershipEstimate ? (
         <p className="text-xs text-muted">
-          ↳ {money(membershipRevenue)} of revenue is auto-calculated from {activeMembers.length} active members
-          ({money(mrr)}/mo{period === "year" ? ` × ${months} months` : ""}). Once Mindbody is connected, service &amp;
-          retail sales will flow in automatically too.
+          ↳ {money(membershipEstimate)} of revenue is <em>estimated</em> from {activeMembers.length} active members
+          ({money(mrr)}/mo{period === "year" ? ` × ${months} months` : ""}). Import a Mindbody Sales report (or let
+          checkouts flow in) and real membership dues replace this estimate automatically.
         </p>
-      )}
+      ) : membershipRecorded > 0 ? (
+        <p className="text-xs text-muted">
+          ↳ Membership revenue ({money(membershipRecorded)}) reflects real Mindbody dues this period, not an estimate.
+        </p>
+      ) : null}
     </div>
   );
 }

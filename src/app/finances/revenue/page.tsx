@@ -4,7 +4,7 @@ import { getSessionUser } from "@/lib/currentUser";
 import { money } from "@/lib/plans";
 import { formatDate, toDateInput, todayStart } from "@/lib/dates";
 import { REVENUE_CATEGORIES } from "@/lib/finance";
-import { createRevenue, deleteRevenue, importMindbodyRevenueCsv } from "@/lib/financeActions";
+import { createRevenue, deleteRevenue, importMindbodyRevenue } from "@/lib/financeActions";
 import { FinanceTabs } from "@/components/FinanceTabs";
 import { redirect } from "next/navigation";
 
@@ -47,8 +47,8 @@ export default async function RevenuePage({
 
       {imported !== undefined && (
         <div className="rounded-lg border border-success/30 bg-success/10 px-4 py-3 text-sm text-success">
-          Imported {imported} sale{imported === "1" ? "" : "s"} from Mindbody.
-          {skipped && skipped !== "0" ? ` Skipped ${skipped} membership line${skipped === "1" ? "" : "s"} (counted automatically on the Dashboard).` : ""}
+          Imported {imported} sale line{imported === "1" ? "" : "s"} from Mindbody (memberships, services &amp; retail).
+          {skipped && skipped !== "0" ? ` Skipped ${skipped} tip/fee line${skipped === "1" ? "" : "s"} — those aren't practice revenue.` : ""}
         </div>
       )}
       {error && (
@@ -57,20 +57,21 @@ export default async function RevenuePage({
         </div>
       )}
 
-      {/* Import a Mindbody Sales report (Export to Excel → save as CSV). */}
+      {/* Import a Mindbody Sales report (Export to Excel — .xlsx or .csv). */}
       <div className="card border-dashed p-5">
         <h2 className="text-sm font-semibold text-ink">Import from a Mindbody Sales report</h2>
         <p className="mt-1 text-xs text-muted">
-          In Mindbody: Reports → Sales → <strong>Sales</strong>, pick your dates, then{" "}
-          <strong>Export to Excel</strong> and save it as a <strong>CSV</strong>. Upload it here and each
-          sale becomes revenue. Membership lines are skipped (they&apos;re already counted on the Dashboard).
-          Re-uploading the same report is safe — it replaces, it doesn&apos;t double.
+          In Mindbody: Reports → Sales → <strong>Sales</strong>, set your dates (keep it on{" "}
+          <strong>Detail</strong>), click <strong>Go!</strong>, then <strong>Export to Excel</strong> and upload the
+          file here — <strong>.xlsx works directly</strong>, no converting. Memberships, services, and retail all
+          count; tips and merchant fees are skipped. Zeroed-out member services add nothing. Re-uploading the same
+          report is safe — it replaces, it doesn&apos;t double.
         </p>
-        <form action={importMindbodyRevenueCsv} className="mt-3 flex flex-wrap items-center gap-3">
+        <form action={importMindbodyRevenue} className="mt-3 flex flex-wrap items-center gap-3">
           <input
             type="file"
             name="file"
-            accept=".csv,text/csv"
+            accept=".xlsx,.xls,.csv,text/csv"
             required
             className="block text-sm text-ink file:mr-3 file:rounded-lg file:border-0 file:bg-ink file:px-3 file:py-1.5 file:text-sm file:text-white hover:file:bg-ink/90"
           />

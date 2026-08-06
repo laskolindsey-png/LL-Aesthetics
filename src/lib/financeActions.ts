@@ -6,6 +6,7 @@ import { prisma } from "./prisma";
 import { getCurrentTenantId } from "./tenant";
 import { getSessionUser } from "./currentUser";
 import { fromDateInput } from "./dates";
+import { classifyMindbodyItem, mindbodyKindToCategory } from "./finance";
 
 async function requireOwner() {
   const me = await getSessionUser();
@@ -111,32 +112,35 @@ function parseCsv(text: string): string[][] {
   return rows;
 }
 
-function mapRevenueCategory(raw: string): { category: string; skip: boolean } {
-  const s = (raw ?? "").toLowerCase();
-  if (s.includes("member") || s.includes("contract") || s.includes("autopay")) {
-    return { category: "Membership Revenue", skip: true };
+// Read an uploaded Sales report into rows — supports Excel (.xlsx/.xls, what
+// "Export to Excel" produces) and CSV.
+async function rowsFromFile(file: File): Promise<unknown[][]> {
+  const name = (file.name ?? "").toLowerCase();
+  const buf = Buffer.from(await file.arrayBuffer());
+  if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
+    const XLSX = await import("xlsx");
+    const wb = XLSX.read(buf, { type: "buffer", cellDates: true });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    return XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: "", raw: true });
   }
-  if (s.includes("retail") || s.includes("product")) return { category: "Retail Sales", skip: false };
-  if (s.includes("service")) return { category: "Service Revenue", skip: false };
-  return { category: "Other Revenue", skip: false };
+  return parseCsv(buf.toString("utf8"));
 }
 
-export async function importMindbodyRevenueCsv(formData: FormData) {
+export async function importMindbodyRevenue(formData: FormData) {
   await requireOwner();
   const tenantId = await getCurrentTenantId();
   const file = formData.get("file") as File | null;
   if (!file || file.size === 0) redirect("/finances/revenue?error=nofile");
 
-  const rows = parseCsv(await file.text());
+  const rows = await rowsFromFile(file);
   if (rows.length < 2) redirect("/finances/revenue?error=empty");
 
-  const header = rows[0].map((h) => h.trim().toLowerCase());
+  const header = rows[0].map((h) => String(h ?? "").trim().toLowerCase());
   const col = (...names: string[]) => {
     for (const n of names) {
       const i = header.findIndex((h) => h === n);
       if (i >= 0) return i;
     }
-    // loose contains-match as a fallback
     for (const n of names) {
       const i = header.findIndex((h) => h.includes(n));
       if (i >= 0) return i;
@@ -144,52 +148,52 @@ export async function importMindbodyRevenueCsv(formData: FormData) {
     return -1;
   };
   const iDate = col("sale date", "date", "transaction date");
-  const iAmount = col("item total", "total", "net sales", "amount", "paid", "sales", "subtotal");
-  const iCategory = col("revenue category", "category", "item type", "type");
-  const iItem = col("item", "item name", "service", "product", "description", "sale");
-  const iClient = col("client", "client name", "customer");
+  const iAmount = col("item total", "total paid", "net sales", "amount", "total", "subtotal");
+  const iItem = col("item name", "item", "service", "product", "description");
+  const iClient = col("patient", "client", "customer");
   const iSaleId = col("sale id", "saleid", "transaction id", "receipt");
-  if (iDate < 0 || iAmount < 0) redirect("/finances/revenue?error=cols");
+  if (iDate < 0 || iAmount < 0 || iItem < 0) redirect("/finances/revenue?error=cols");
 
-  const parseAmount = (raw: string): number =>
-    Number(String(raw ?? "").replace(/[^0-9.\-]/g, "")) || 0;
-  const parseDate = (raw: string): Date | null => {
-    const s = (raw ?? "").trim();
+  const parseAmount = (v: unknown): number => {
+    if (typeof v === "number") return v;
+    return Number(String(v ?? "").replace(/[^0-9.\-]/g, "")) || 0;
+  };
+  const parseDate = (v: unknown): Date | null => {
+    if (v instanceof Date) return isNaN(v.getTime()) ? null : v;
+    const s = String(v ?? "").trim();
     if (!s) return null;
     const d = new Date(s);
     return isNaN(d.getTime()) ? null : d;
   };
 
-  // Remove any prior import of the sale IDs present in this file, so re-uploading
-  // the same report replaces rather than duplicates.
+  // De-dupe against any prior import OR live capture of these sales, so the same
+  // report can be re-uploaded and never doubles.
   const saleIds = iSaleId >= 0
-    ? [...new Set(rows.slice(1).map((r) => (r[iSaleId] ?? "").trim()).filter(Boolean).map((s) => `import:${s}`))]
+    ? [...new Set(rows.slice(1).map((r) => String(r[iSaleId] ?? "").trim()).filter(Boolean))]
     : [];
   if (saleIds.length) {
     await prisma.revenueEntry.deleteMany({ where: { tenantId, mindbodySaleId: { in: saleIds } } });
   }
 
   let imported = 0;
-  let skipped = 0;
+  let skipped = 0; // tips + fees (not practice revenue)
   for (const r of rows.slice(1)) {
-    const date = parseDate(r[iDate] ?? "");
-    const amount = parseAmount(r[iAmount] ?? "");
-    if (!date || amount <= 0) { continue; }
-    const { category, skip } = mapRevenueCategory(iCategory >= 0 ? r[iCategory] ?? "" : "");
-    if (skip) { skipped++; continue; }
-    const parts = [
-      iItem >= 0 ? (r[iItem] ?? "").trim() : "",
-      iClient >= 0 ? (r[iClient] ?? "").trim() : "",
-    ].filter(Boolean);
+    const date = parseDate(r[iDate]);
+    const amount = parseAmount(r[iAmount]);
+    const name = String(r[iItem] ?? "").trim();
+    if (!date || amount <= 0) continue; // $0 lines (e.g. members' zeroed services)
+    const kind = classifyMindbodyItem(name);
+    if (kind === "tip" || kind === "fee") { skipped++; continue; }
+    const parts = [name, iClient >= 0 ? String(r[iClient] ?? "").trim() : ""].filter(Boolean);
     await prisma.revenueEntry.create({
       data: {
         tenantId,
         periodStart: date,
-        category,
+        category: mindbodyKindToCategory(kind),
         amount,
         description: parts.join(" · ") || null,
         source: "Mindbody (import)",
-        mindbodySaleId: iSaleId >= 0 && (r[iSaleId] ?? "").trim() ? `import:${(r[iSaleId] ?? "").trim()}` : null,
+        mindbodySaleId: iSaleId >= 0 && String(r[iSaleId] ?? "").trim() ? String(r[iSaleId]).trim() : null,
       },
     });
     imported++;

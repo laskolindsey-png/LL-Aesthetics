@@ -41,6 +41,31 @@ export const SEED_VENDORS: { name: string; defaultCategory: string; defaultSubca
   { name: "Google Workspace", defaultCategory: "Operating", defaultSubcategory: "Software" },
 ];
 
+// Classify a Mindbody sale line by its item name (the Sales report has no
+// category column). Memberships are separated so they don't double-count the
+// dashboard's active-member total; tips and merchant/processing fees aren't
+// practice revenue at all.
+export type MindbodyItemKind = "membership" | "tip" | "fee" | "retail" | "service";
+
+export function classifyMindbodyItem(name: string): MindbodyItemKind {
+  const n = (name ?? "").toLowerCase().trim();
+  if (/\btips?\b|gratuity/.test(n)) return "tip";
+  if (/merchant fee|processing fee|\bcherry\b|\bfee\b/.test(n)) return "fee";
+  if (/member|luxe|elite membership|subscription|monthly dues|autopay/.test(n))
+    return "membership";
+  if (/emulsion|serum|cream|moistur|cleanser|\bspf\b|sunscreen|lotion|balm|mask|retail|\bkit\b|toner|exfoliant|retinol/.test(n))
+    return "retail";
+  return "service";
+}
+
+export function mindbodyKindToCategory(kind: MindbodyItemKind): string {
+  return kind === "membership"
+    ? "Membership Revenue"
+    : kind === "retail"
+    ? "Retail Sales"
+    : "Service Revenue";
+}
+
 export type FinancePeriod = "month" | "year";
 
 /** Start/end of the selected period around a reference date. */
