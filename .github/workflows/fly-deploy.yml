@@ -7,6 +7,9 @@ name: Deploy to Fly.io
 on:
   push:
     branches: [main]
+  # Allow deploying on demand from the Actions tab (or the API) — a reliable
+  # fallback when GitHub is slow to fire the automatic push trigger.
+  workflow_dispatch:
 
 # Never run two deploys at once; a newer push supersedes an in-flight one.
 concurrency:
