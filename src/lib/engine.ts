@@ -35,6 +35,24 @@ const SERVICE_ALIASES: { prefix: string; rule: string }[] = [
   { prefix: "fire and ice", rule: "Facial (Non-Member)" },
 ];
 
+// Quick cosmetic services that need no aftercare — a completed appointment for
+// these should NOT create any follow-up tasks (they were landing in the generic
+// "General Follow-Up" and cluttering Today's Tasks with a bogus Post-Care step).
+// Matched when the (lowercased) service name CONTAINS one of these words.
+const NO_FOLLOWUP_KEYWORDS = [
+  "brow",
+  "lash",
+  "wax",
+  "tint",
+  "lamination",
+];
+
+function needsNoFollowUp(rawService: string): boolean {
+  const lower = canonicalService(rawService).toLowerCase();
+  if (!lower) return false;
+  return NO_FOLLOWUP_KEYWORDS.some((k) => lower.includes(k));
+}
+
 /**
  * Map a raw Mindbody service name to a known rule service name, or null.
  * Order: exact → explicit alias → rule-name prefix ("Laser Hair Removal Sm"
@@ -76,6 +94,10 @@ export async function findMatchingRules(
   if (rules.length > 0) return rules;
 
   if (patientEvent === "Treatment Completed") {
+    // Quick cosmetic services (brows, lashes, waxing, tinting) get no follow-up
+    // at all — skip before the generic fallback so they never create tasks.
+    if (needsNoFollowUp(service)) return [];
+
     // Resolve a variant/alias name (e.g. "Laser Hair Removal Sm", "PRX (WiQO)",
     // "HydraFacial Signature") to a real rule before falling back to generic.
     const known = await prisma.serviceRule.findMany({
