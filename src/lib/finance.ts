@@ -9,16 +9,18 @@ export const REVENUE_CATEGORIES = [
   "Other Revenue",
 ] as const;
 
-// Expense category → its subcategories (from the sheet's Financial Rules).
+// Expense category → its subcategories (from the sheet's Financial Rules,
+// plus the owner's own categories).
 export const EXPENSE_CATEGORIES: Record<string, string[]> = {
   Inventory: ["Injectables", "Skincare / Retail", "Consumables", "Peptides"],
+  Payroll: ["Wages", "Contractor", "Payroll Taxes", "Benefits"],
+  Bills: ["Gas", "Water", "Electric", "Internet", "Phone", "Cable"],
+  Software: ["Subscriptions", "SaaS", "Website", "EMR / Booking"],
+  Service: ["Trash", "Medical Waste", "Cleaning", "Laundry", "Landscaping"],
   Operating: [
     "Rent",
-    "Utilities",
-    "Software",
     "Marketing",
     "Office Supplies",
-    "Payroll",
     "Insurance",
     "Professional Services",
     "Merchant Fees",
@@ -27,6 +29,11 @@ export const EXPENSE_CATEGORIES: Record<string, string[]> = {
   "Owner Activity": ["Owner Draw", "Owner Contribution"],
   Banking: ["Bank Fees", "Interest", "Transfers"],
 };
+
+// Flat list of every subcategory (for input suggestions).
+export const EXPENSE_SUBCATEGORIES = [
+  ...new Set(Object.values(EXPENSE_CATEGORIES).flat()),
+];
 
 export const EXPENSE_CATEGORY_NAMES = Object.keys(EXPENSE_CATEGORIES);
 

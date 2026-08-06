@@ -73,6 +73,32 @@ export async function createExpense(formData: FormData) {
   revalidateFinance();
 }
 
+export async function editExpense(formData: FormData) {
+  await requireOwner();
+  const tenantId = await getCurrentTenantId();
+  const id = String(formData.get("id") ?? "");
+  const existing = await prisma.expenseEntry.findFirst({ where: { id, tenantId } });
+  if (!existing) throw new Error("Expense not found.");
+  const dateRaw = String(formData.get("date") ?? "").trim();
+  const amount = Number(String(formData.get("amount") ?? "").replace(/[^0-9.]/g, ""));
+  if (!dateRaw) throw new Error("Date is required.");
+  if (!amount) throw new Error("Amount is required.");
+  await prisma.expenseEntry.update({
+    where: { id },
+    data: {
+      date: fromDateInput(dateRaw),
+      vendor: String(formData.get("vendor") ?? "").trim() || null,
+      description: String(formData.get("description") ?? "").trim() || null,
+      category: String(formData.get("category") ?? "Operating").trim() || "Operating",
+      subcategory: String(formData.get("subcategory") ?? "").trim() || null,
+      amount,
+      recurring: formData.get("recurring") != null,
+    },
+  });
+  revalidateFinance();
+  redirect("/finances/expenses");
+}
+
 export async function deleteExpense(formData: FormData) {
   await requireOwner();
   const tenantId = await getCurrentTenantId();
@@ -213,9 +239,31 @@ export async function createVendor(formData: FormData) {
       name,
       defaultCategory: String(formData.get("defaultCategory") ?? "").trim() || null,
       defaultSubcategory: String(formData.get("defaultSubcategory") ?? "").trim() || null,
+      accountNumber: String(formData.get("accountNumber") ?? "").trim() || null,
+      notes: String(formData.get("notes") ?? "").trim() || null,
     },
   });
   revalidateFinance();
+}
+
+export async function editVendor(formData: FormData) {
+  await requireOwner();
+  const tenantId = await getCurrentTenantId();
+  const id = String(formData.get("id") ?? "");
+  const vendor = await prisma.vendor.findFirst({ where: { id, tenantId } });
+  if (!vendor) throw new Error("Vendor not found.");
+  await prisma.vendor.update({
+    where: { id },
+    data: {
+      name: String(formData.get("name") ?? vendor.name).trim() || vendor.name,
+      defaultCategory: String(formData.get("defaultCategory") ?? "").trim() || null,
+      defaultSubcategory: String(formData.get("defaultSubcategory") ?? "").trim() || null,
+      accountNumber: String(formData.get("accountNumber") ?? "").trim() || null,
+      notes: String(formData.get("notes") ?? "").trim() || null,
+    },
+  });
+  revalidateFinance();
+  redirect("/finances/vendors");
 }
 
 export async function deleteVendor(formData: FormData) {
