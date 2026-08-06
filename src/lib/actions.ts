@@ -117,6 +117,25 @@ export async function completeTask(formData: FormData) {
   revalidatePath("/leads");
 }
 
+/**
+ * Delete a workflow record and all its follow-up tasks (tasks cascade). Use this
+ * to clear out records that got the wrong follow-up steps — e.g. treatments
+ * checked out before the service-name routing fix. Re-enter to get correct steps.
+ */
+export async function deleteWorkflowRecord(formData: FormData) {
+  const tenantId = await getCurrentTenantId();
+  const recordId = String(formData.get("recordId") ?? "");
+  const record = await prisma.workflowRecord.findFirst({
+    where: { id: recordId, tenantId },
+  });
+  if (!record) throw new Error("Record not found.");
+  await prisma.workflowRecord.delete({ where: { id: recordId } });
+  revalidatePath("/");
+  revalidatePath("/tasks");
+  revalidatePath("/workflow");
+  revalidatePath("/patients");
+}
+
 /** Toggle a rule on/off from the Service Rules screen. */
 export async function toggleRule(formData: FormData) {
   const tenantId = await getCurrentTenantId();

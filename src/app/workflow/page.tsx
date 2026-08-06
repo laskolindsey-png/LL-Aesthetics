@@ -3,6 +3,7 @@ import { getCurrentTenantId } from "@/lib/tenant";
 import { toDateInput, todayStart, formatDate } from "@/lib/dates";
 import { Badge, statusTone } from "@/components/Badge";
 import { NewEventForm } from "@/components/NewEventForm";
+import { deleteWorkflowRecord } from "@/lib/actions";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -54,12 +55,13 @@ export default async function WorkflowPage() {
                 <th className="px-4 py-3 font-medium">Next Follow-Up</th>
                 <th className="px-4 py-3 font-medium">Progress</th>
                 <th className="px-4 py-3 font-medium">Status</th>
+                <th className="px-4 py-3 font-medium"></th>
               </tr>
             </thead>
             <tbody>
               {records.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-muted">
+                  <td colSpan={8} className="px-4 py-10 text-center text-muted">
                     No records yet. Add your first treatment above.
                   </td>
                 </tr>
@@ -95,6 +97,14 @@ export default async function WorkflowPage() {
                       </td>
                       <td className="px-4 py-3">
                         <Badge tone={statusTone(r.status)}>{r.status}</Badge>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <form action={deleteWorkflowRecord}>
+                          <input type="hidden" name="recordId" value={r.id} />
+                          <button className="text-xs text-danger hover:underline">
+                            Delete
+                          </button>
+                        </form>
                       </td>
                     </tr>
                   );
