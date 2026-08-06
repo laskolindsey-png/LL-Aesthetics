@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentTenantId } from "@/lib/tenant";
 import { todayStart, addDays, formatDate, daysUntil } from "@/lib/dates";
 import { money, REMINDER_WINDOW_DAYS } from "@/lib/plans";
-import { setPlanItemStatus } from "@/lib/planActions";
+import { setPlanItemStatus, uploadAuraPlan } from "@/lib/planActions";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +22,7 @@ export default async function PlansPage() {
   const today = todayStart();
   const horizon = addDays(today, REMINDER_WINDOW_DAYS);
 
-  const [dueItems, allRecommended] = await Promise.all([
+  const [dueItems, allRecommended, patients] = await Promise.all([
     prisma.treatmentPlanItem.findMany({
       where: { tenantId, status: "Recommended", targetDate: { lte: horizon } },
       include: { plan: { include: { patient: true } } },
@@ -31,6 +31,11 @@ export default async function PlansPage() {
     prisma.treatmentPlanItem.findMany({
       where: { tenantId, status: "Recommended" },
       select: { price: true },
+    }),
+    prisma.patient.findMany({
+      where: { tenantId },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
     }),
   ]);
 
@@ -46,11 +51,42 @@ export default async function PlansPage() {
           Recommended treatments coming due that aren&apos;t scheduled yet. Reach
           out, book them, then mark them scheduled to clear them from this list.
         </p>
-        <p className="mt-2 text-sm text-muted">
-          To build a new plan, open a patient and use the{" "}
-          <strong>Aura Plans</strong> section on their page.{" "}
+      </div>
+
+      {/* Upload an Aura scan straight from here — pick the patient, drop the PDF,
+          and it auto-builds their plan (then opens their page to review). */}
+      <div className="card border-dashed p-4">
+        <form action={uploadAuraPlan} className="flex flex-wrap items-end gap-3">
+          <div className="min-w-[200px] flex-1">
+            <label className="label">Patient</label>
+            <select name="patientId" required defaultValue="" className="input py-2 text-sm">
+              <option value="" disabled>
+                Choose a patient…
+              </option>
+              {patients.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="min-w-[220px] flex-1">
+            <label className="label">Aura scan (PDF)</label>
+            <input
+              type="file"
+              name="file"
+              accept="application/pdf,.pdf"
+              required
+              className="block text-sm"
+            />
+          </div>
+          <button className="btn-accent">Upload &amp; build plan</button>
+        </form>
+        <p className="mt-2 text-xs text-muted">
+          We&apos;ll save the file and auto-build the plan from it — then open the
+          patient so you can review. To build one from a patient&apos;s page instead,{" "}
           <Link href="/patients" className="text-accent hover:underline">
-            Go to Patients →
+            go to Patients →
           </Link>
         </p>
       </div>
