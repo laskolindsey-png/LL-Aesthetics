@@ -4,16 +4,27 @@ import { getSessionUser } from "@/lib/currentUser";
 import { money } from "@/lib/plans";
 import { formatDate, toDateInput, todayStart } from "@/lib/dates";
 import { REVENUE_CATEGORIES } from "@/lib/finance";
-import { createRevenue, deleteRevenue } from "@/lib/financeActions";
+import { createRevenue, deleteRevenue, importMindbodyRevenueCsv } from "@/lib/financeActions";
 import { FinanceTabs } from "@/components/FinanceTabs";
 import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
-export default async function RevenuePage() {
+const IMPORT_ERRORS: Record<string, string> = {
+  nofile: "No file was selected. Choose your exported .csv and try again.",
+  empty: "That file looked empty — make sure it has a header row plus your sales.",
+  cols: "Couldn't find a date and amount column. Check the report has Sale Date and a total/amount column.",
+};
+
+export default async function RevenuePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ imported?: string; skipped?: string; error?: string }>;
+}) {
   const me = await getSessionUser();
   if (!me) redirect("/login");
   if (me.role !== "owner") redirect("/");
+  const { imported, skipped, error } = await searchParams;
   const tenantId = await getCurrentTenantId();
 
   const entries = await prisma.revenueEntry.findMany({
@@ -33,6 +44,39 @@ export default async function RevenuePage() {
       </div>
 
       <FinanceTabs />
+
+      {imported !== undefined && (
+        <div className="rounded-lg border border-success/30 bg-success/10 px-4 py-3 text-sm text-success">
+          Imported {imported} sale{imported === "1" ? "" : "s"} from Mindbody.
+          {skipped && skipped !== "0" ? ` Skipped ${skipped} membership line${skipped === "1" ? "" : "s"} (counted automatically on the Dashboard).` : ""}
+        </div>
+      )}
+      {error && (
+        <div className="rounded-lg border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
+          {IMPORT_ERRORS[error] ?? "Something went wrong with that file. Please try again."}
+        </div>
+      )}
+
+      {/* Import a Mindbody Sales report (Export to Excel → save as CSV). */}
+      <div className="card border-dashed p-5">
+        <h2 className="text-sm font-semibold text-ink">Import from a Mindbody Sales report</h2>
+        <p className="mt-1 text-xs text-muted">
+          In Mindbody: Reports → Sales → <strong>Sales</strong>, pick your dates, then{" "}
+          <strong>Export to Excel</strong> and save it as a <strong>CSV</strong>. Upload it here and each
+          sale becomes revenue. Membership lines are skipped (they&apos;re already counted on the Dashboard).
+          Re-uploading the same report is safe — it replaces, it doesn&apos;t double.
+        </p>
+        <form action={importMindbodyRevenueCsv} className="mt-3 flex flex-wrap items-center gap-3">
+          <input
+            type="file"
+            name="file"
+            accept=".csv,text/csv"
+            required
+            className="block text-sm text-ink file:mr-3 file:rounded-lg file:border-0 file:bg-ink file:px-3 file:py-1.5 file:text-sm file:text-white hover:file:bg-ink/90"
+          />
+          <button className="btn-accent">Import sales</button>
+        </form>
+      </div>
 
       <form action={createRevenue} className="card grid gap-3 p-5 md:grid-cols-6">
         <div className="md:col-span-1">
@@ -79,7 +123,14 @@ export default async function RevenuePage() {
                 entries.map((e) => (
                   <tr key={e.id} className="border-b border-line/60">
                     <td className="px-4 py-3 whitespace-nowrap text-muted">{formatDate(e.periodStart)}</td>
-                    <td className="px-4 py-3 text-ink">{e.category}</td>
+                    <td className="px-4 py-3 text-ink">
+                      {e.category}
+                      {e.source && (
+                        <span className="ml-1.5 rounded bg-canvas px-1.5 py-0.5 text-[10px] text-muted">
+                          {e.source.replace(/^Mindbody /, "MB ")}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-muted">{e.description ?? "—"}</td>
                     <td className="px-4 py-3 whitespace-nowrap font-medium text-success">{money(e.amount)}</td>
                     <td className="px-4 py-3 text-right">

@@ -60,9 +60,13 @@ model RevenueEntry {
   description String?
   amount      Float
   source      String?
+  // When set, this entry came from a Mindbody sale; used to de-dupe webhook
+  // retries (all entries for a sale are replaced on re-delivery).
+  mindbodySaleId String?
   createdAt   DateTime  @default(now())
 
   @@index([tenantId, periodStart])
+  @@index([tenantId, mindbodySaleId])
 }
 
 model ExpenseEntry {

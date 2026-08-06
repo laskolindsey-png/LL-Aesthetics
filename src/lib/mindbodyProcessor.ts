@@ -388,12 +388,89 @@ function isGoodFaithExam(name: string): boolean {
   return /good\s*faith/i.test(name) || /\bgfe\b/i.test(name);
 }
 
+// --- Revenue capture --------------------------------------------------------
+// Turn a Mindbody checkout into revenue entries so daily/monthly totals fill in
+// automatically. Memberships are intentionally skipped: the dashboard already
+// counts them from active memberships (MRR), so capturing them here too would
+// double-count. Everything else maps to Service, Retail, or Other revenue.
+function classifyRevenue(
+  type: string,
+  name: string
+): { category: string; skip: boolean } {
+  const t = (type ?? "").toLowerCase();
+  const n = (name ?? "").toLowerCase();
+  if (t.includes("member") || n.includes("member") || t.includes("contract")) {
+    return { category: "Membership Revenue", skip: true };
+  }
+  if (t.includes("service")) return { category: "Service Revenue", skip: false };
+  if (t.includes("product") || t.includes("retail")) {
+    return { category: "Retail Sales", skip: false };
+  }
+  return { category: "Other Revenue", skip: false };
+}
+
+async function recordSaleRevenue(
+  tenantId: string,
+  payload: MindbodyWebhookPayload
+) {
+  const data = payload.eventData;
+  if (!data) return;
+
+  const saleId = String(data.saleId ?? "").trim();
+  if (!saleId) return;
+
+  const saleRaw = String(data.saleDateTime ?? "").trim();
+  const saleDate = saleRaw ? new Date(saleRaw) : null;
+  if (!saleDate || Number.isNaN(saleDate.getTime())) return;
+
+  // Sum non-membership line items by revenue category.
+  const byCategory = new Map<string, number>();
+  for (const item of data.items ?? []) {
+    const amount = Number(item.amountPaid ?? 0);
+    if (!amount || amount <= 0) continue;
+    const { category, skip } = classifyRevenue(
+      String(item.type ?? ""),
+      String(item.name ?? "")
+    );
+    if (skip) continue;
+    byCategory.set(category, (byCategory.get(category) ?? 0) + amount);
+  }
+
+  // Replace any prior entries for this sale so a re-delivered webhook can't
+  // double-count, then write the fresh totals.
+  await prisma.revenueEntry.deleteMany({
+    where: { tenantId, mindbodySaleId: saleId },
+  });
+  for (const [category, amount] of byCategory) {
+    if (amount <= 0) continue;
+    await prisma.revenueEntry.create({
+      data: {
+        tenantId,
+        periodStart: saleDate,
+        category,
+        amount,
+        source: "Mindbody (auto)",
+        mindbodySaleId: saleId,
+        description: "Auto-recorded from Mindbody checkout",
+      },
+    });
+  }
+}
+
 async function handleClientSaleCreated(
   tenantId: string,
   payload: MindbodyWebhookPayload
 ) {
   const data = payload.eventData;
   if (!data) return;
+
+  // Record revenue from every checkout (service + retail), independent of
+  // whether it maps to an appointment/workflow below.
+  try {
+    await recordSaleRevenue(tenantId, payload);
+  } catch (err) {
+    console.warn("[Mindbody] Could not record sale revenue.", err);
+  }
 
   const appointmentId = String(data.appointmentIds?.[0] ?? "").trim();
 
