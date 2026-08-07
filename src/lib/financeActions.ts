@@ -361,6 +361,23 @@ function isSkippableBankLine(descRaw: string): boolean {
   return false;
 }
 
+// Fallback for lines no merchant rule matched: lean on the bank's own
+// Classification column to catch obvious personal lifestyle spending (dining,
+// coffee, nail salons, kids, clothing) and route it to Personal so it stays out
+// of the business P&L. Only clearly-personal classes — anything ambiguous
+// (gas, air travel) is left in Review so a business trip isn't mislabeled.
+function personalFromBankClass(classRaw: string): { category: string; subcategory: string } | null {
+  const c = (classRaw ?? "").toLowerCase().replace(/&amp;/g, "&");
+  if (/restaurant|fast food|food & dining|coffee|\bdining\b/.test(c) || c.includes("alcohol"))
+    return { category: "Personal", subcategory: "Dining" };
+  if (c.includes("grocer")) return { category: "Personal", subcategory: "Groceries" };
+  if (c.includes("kids")) return { category: "Personal", subcategory: "Kids" };
+  if (c.includes("clothing")) return { category: "Personal", subcategory: "Clothing" };
+  if (c.includes("personal care")) return { category: "Personal", subcategory: "Beauty" };
+  if (/hobb|furnish|home improvement/.test(c)) return { category: "Personal", subcategory: "Household" };
+  return null;
+}
+
 function categorizeBankMerchant(
   descRaw: string,
   amount = 0
@@ -414,6 +431,19 @@ function categorizeBankMerchant(
   // Business travel (e.g. Pendry hotel — a work trip).
   if (has("pendry"))
     return { category: "Operating", subcategory: "Travel" };
+  // Recurring business utilities.
+  if (has("atmos energy", "atmos")) return { category: "Bills", subcategory: "Gas" };
+  if (has("sparklight")) return { category: "Bills", subcategory: "Internet" };
+  if (has("city of sherman")) return { category: "Bills", subcategory: "Water" };
+  // Website / hosting / AI + other business software.
+  if (has("squarespace")) return { category: "Software", subcategory: "Website" };
+  if (has("fly io", "fly.io")) return { category: "Software", subcategory: "Website" };
+  if (has("anthropic")) return { category: "Software", subcategory: "Subscriptions" };
+  if (has("masternetworks", "master networks")) return { category: "Software", subcategory: "SaaS" };
+  // Facebook/Meta = ad spend.
+  if (has("facebook", "meta platforms", "meta ads")) return { category: "Operating", subcategory: "Marketing" };
+  // Document shredding (HIPAA) — a business service.
+  if (has("shred it", "shredit")) return { category: "Service", subcategory: "Shredding" };
   // Software first, so "Amazon Digital" doesn't fall into the Amazon supplies bucket.
   if (has("amazon digital", "adobe", "canva", "apple", "google", "microsoft", "quicken", "zoom", "dropbox"))
     return { category: "Software", subcategory: "Subscriptions" };
@@ -470,6 +500,7 @@ export async function importBankCsv(formData: FormData) {
   const iDate = col("post date", "date", "transaction date");
   const iDesc = col("description", "merchant", "name");
   const iDeb = col("debit", "amount", "withdrawal");
+  const iClass = col("classification", "category");
   if (iDate < 0 || iDesc < 0 || iDeb < 0) redirect("/finances/expenses?error=bank");
 
   const num = (v: unknown) =>
@@ -491,7 +522,12 @@ export async function importBankCsv(formData: FormData) {
     const base = `bank:${dstr}|${desc.toLowerCase()}|${debit}`;
     const occ = (seen.get(base) ?? 0) + 1;
     seen.set(base, occ);
-    const { category, subcategory } = categorizeBankMerchant(desc, debit);
+    let { category, subcategory } = categorizeBankMerchant(desc, debit);
+    // No merchant match? Fall back to the bank's own tag for obvious personal.
+    if (category === "Uncategorized" && iClass >= 0) {
+      const p = personalFromBankClass(String(r[iClass] ?? ""));
+      if (p) { category = p.category; subcategory = p.subcategory; }
+    }
     if (category === "Uncategorized") review++;
     // Give the auto-tagged rent checks a readable vendor instead of "Check #1234".
     const vendor =
