@@ -249,6 +249,77 @@ export async function importMindbodyRevenue(formData: FormData) {
   redirect(`/finances/revenue?imported=${imported}&skipped=${skipped}`);
 }
 
+// --- Payroll import ---------------------------------------------------------
+// Accepts a Gusto-style payroll export (CSV or Excel) and books one Payroll
+// expense per pay date = gross earnings + employer taxes (the real employer
+// cost; employee taxes are withheld from gross, not additional). De-duped by
+// pay date so re-uploading an overlapping range replaces rather than doubles.
+export async function importPayrollCsv(formData: FormData) {
+  await requireOwner();
+  const tenantId = await getCurrentTenantId();
+  const file = formData.get("file") as File | null;
+  if (!file || file.size === 0) redirect("/finances/expenses?error=nofile");
+
+  const rows = await rowsFromFile(file);
+  const hi = rows.findIndex((r) =>
+    r.some((c) => String(c ?? "").trim().toLowerCase() === "payroll pay date")
+  );
+  if (hi < 0) redirect("/finances/expenses?error=payroll");
+  const header = rows[hi].map((h) => String(h ?? "").trim().toLowerCase());
+  const col = (n: string) => header.indexOf(n);
+  const iPay = col("payroll");
+  const iEmp = col("employee");
+  const iDate = col("payroll pay date");
+  const iGross = col("gross earnings");
+  const iErTax = col("total employer taxes");
+  if (iDate < 0 || iGross < 0) redirect("/finances/expenses?error=payroll");
+
+  const num = (v: unknown) =>
+    typeof v === "number" ? v : Number(String(v ?? "").replace(/[^0-9.\-]/g, "")) || 0;
+
+  // Aggregate the per-employee rows (skip subtotal/grand-total rows) by pay date.
+  const agg = new Map<string, { amount: number; count: number; label: string }>();
+  for (const r of rows.slice(hi + 1)) {
+    const emp = iEmp >= 0 ? String(r[iEmp] ?? "").trim() : "x";
+    const pay = iPay >= 0 ? String(r[iPay] ?? "") : "";
+    if (!emp || /totals/i.test(pay)) continue;
+    const d = String(r[iDate] ?? "").trim();
+    if (!d) continue;
+    const cost = num(r[iGross]) + (iErTax >= 0 ? num(r[iErTax]) : 0);
+    const cur = agg.get(d) ?? { amount: 0, count: 0, label: pay.split(",")[0].trim() };
+    cur.amount += cost;
+    cur.count += 1;
+    agg.set(d, cur);
+  }
+
+  const keys = [...agg.keys()].map((d) => `payroll:${d}`);
+  if (keys.length) {
+    await prisma.expenseEntry.deleteMany({ where: { tenantId, importKey: { in: keys } } });
+  }
+
+  let imported = 0;
+  for (const [d, v] of agg) {
+    const date = new Date(d);
+    if (isNaN(date.getTime()) || v.amount <= 0) continue;
+    await prisma.expenseEntry.create({
+      data: {
+        tenantId,
+        date,
+        vendor: "Payroll",
+        category: "Payroll",
+        subcategory: "Wages",
+        description: `Payroll ${v.label} · ${v.count} staff (incl. employer taxes)`.trim(),
+        amount: Math.round(v.amount * 100) / 100,
+        recurring: false,
+        importKey: `payroll:${d}`,
+      },
+    });
+    imported++;
+  }
+  revalidateFinance();
+  redirect(`/finances/expenses?imported=${imported}`);
+}
+
 export async function createVendor(formData: FormData) {
   await requireOwner();
   const tenantId = await getCurrentTenantId();

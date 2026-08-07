@@ -4,22 +4,27 @@ import { getSessionUser } from "@/lib/currentUser";
 import { money } from "@/lib/plans";
 import { formatDate, toDateInput, todayStart } from "@/lib/dates";
 import { EXPENSE_CATEGORY_NAMES, EXPENSE_SUBCATEGORIES } from "@/lib/finance";
-import { createExpense, editExpense, deleteExpense } from "@/lib/financeActions";
+import { createExpense, editExpense, deleteExpense, importPayrollCsv } from "@/lib/financeActions";
 import { FinanceTabs } from "@/components/FinanceTabs";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
+const IMPORT_ERRORS: Record<string, string> = {
+  nofile: "No file was selected. Choose your payroll export and try again.",
+  payroll: "Couldn't read that payroll file — it should have a 'Payroll pay date' and 'Gross earnings' column (a Gusto export works).",
+};
+
 export default async function ExpensesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ edit?: string }>;
+  searchParams: Promise<{ edit?: string; imported?: string; error?: string }>;
 }) {
   const me = await getSessionUser();
   if (!me) redirect("/login");
   if (me.role !== "owner") redirect("/");
-  const { edit } = await searchParams;
+  const { edit, imported, error } = await searchParams;
   const tenantId = await getCurrentTenantId();
 
   const [entries, vendors] = await Promise.all([
@@ -43,6 +48,36 @@ export default async function ExpensesPage({
       </div>
 
       <FinanceTabs />
+
+      {imported !== undefined && (
+        <div className="rounded-lg border border-success/30 bg-success/10 px-4 py-3 text-sm text-success">
+          Imported {imported} payroll run{imported === "1" ? "" : "s"} (one per pay date, gross wages + employer taxes).
+        </div>
+      )}
+      {error && (
+        <div className="rounded-lg border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
+          {IMPORT_ERRORS[error] ?? "Something went wrong with that file. Please try again."}
+        </div>
+      )}
+
+      {/* Import payroll from a Gusto (or similar) export. */}
+      <div className="card border-dashed p-5">
+        <h2 className="text-sm font-semibold text-ink">Import payroll</h2>
+        <p className="mt-1 text-xs text-muted">
+          Upload your payroll export (Gusto CSV/Excel). It books <strong>one Payroll expense per pay date</strong> —
+          gross wages + employer taxes (your real cost). Re-uploading the same range is safe; it replaces by pay date.
+        </p>
+        <form action={importPayrollCsv} className="mt-3 flex flex-wrap items-center gap-3">
+          <input
+            type="file"
+            name="file"
+            accept=".csv,.xlsx,.xls,text/csv"
+            required
+            className="block text-sm text-ink file:mr-3 file:rounded-lg file:border-0 file:bg-ink file:px-3 file:py-1.5 file:text-sm file:text-white hover:file:bg-ink/90"
+          />
+          <button className="btn-accent">Import payroll</button>
+        </form>
+      </div>
 
       <form action={createExpense} className="card grid gap-3 p-5 md:grid-cols-6">
         <div>

@@ -80,9 +80,13 @@ model ExpenseEntry {
   subcategory String?
   amount      Float
   recurring   Boolean   @default(false)
+  // Set for imported rows (e.g. "payroll:07/31/2026") so re-imports replace
+  // rather than duplicate.
+  importKey   String?
   createdAt   DateTime  @default(now())
 
   @@index([tenantId, date])
+  @@index([tenantId, importKey])
 }
 
 model Vendor {
