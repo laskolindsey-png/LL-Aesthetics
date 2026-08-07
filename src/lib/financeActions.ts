@@ -140,14 +140,31 @@ function parseCsv(text: string): string[][] {
 
 // Read an uploaded Sales report into rows — supports Excel (.xlsx/.xls, what
 // "Export to Excel" produces) and CSV.
+function looksLikeHeaderRow(row: unknown[]): boolean {
+  return row.some((c) => {
+    const s = String(c ?? "").trim().toLowerCase();
+    return s === "sale date" || s === "item total";
+  });
+}
+
 async function rowsFromFile(file: File): Promise<unknown[][]> {
   const name = (file.name ?? "").toLowerCase();
   const buf = Buffer.from(await file.arrayBuffer());
   if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
     const XLSX = await import("xlsx");
     const wb = XLSX.read(buf, { type: "buffer", cellDates: true });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    return XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: "", raw: true });
+    const readSheet = (n: string) =>
+      XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[n], { header: 1, defval: "", raw: true });
+    // Bigger exports add an "Index" tab up front and split data across sheets.
+    // Prefer a sheet literally named "Sales"; else the one that has the header
+    // row; else the first sheet.
+    const byName = wb.SheetNames.find((n) => n.trim().toLowerCase() === "sales");
+    if (byName) return readSheet(byName);
+    for (const n of wb.SheetNames) {
+      const rows = readSheet(n);
+      if (rows.some((r) => looksLikeHeaderRow(r))) return rows;
+    }
+    return readSheet(wb.SheetNames[0]);
   }
   return parseCsv(buf.toString("utf8"));
 }
@@ -161,7 +178,11 @@ export async function importMindbodyRevenue(formData: FormData) {
   const rows = await rowsFromFile(file);
   if (rows.length < 2) redirect("/finances/revenue?error=empty");
 
-  const header = rows[0].map((h) => String(h ?? "").trim().toLowerCase());
+  // Some exports have title rows above the header — find the real header row.
+  let headerIdx = rows.findIndex((r) => looksLikeHeaderRow(r));
+  if (headerIdx < 0) headerIdx = 0;
+  const dataRows = rows.slice(headerIdx + 1);
+  const header = rows[headerIdx].map((h) => String(h ?? "").trim().toLowerCase());
   const col = (...names: string[]) => {
     for (const n of names) {
       const i = header.findIndex((h) => h === n);
@@ -195,7 +216,7 @@ export async function importMindbodyRevenue(formData: FormData) {
   // De-dupe against any prior import OR live capture of these sales, so the same
   // report can be re-uploaded and never doubles.
   const saleIds = iSaleId >= 0
-    ? [...new Set(rows.slice(1).map((r) => String(r[iSaleId] ?? "").trim()).filter(Boolean))]
+    ? [...new Set(dataRows.map((r) => String(r[iSaleId] ?? "").trim()).filter(Boolean))]
     : [];
   if (saleIds.length) {
     await prisma.revenueEntry.deleteMany({ where: { tenantId, mindbodySaleId: { in: saleIds } } });
@@ -203,7 +224,7 @@ export async function importMindbodyRevenue(formData: FormData) {
 
   let imported = 0;
   let skipped = 0; // tips + fees (not practice revenue)
-  for (const r of rows.slice(1)) {
+  for (const r of dataRows) {
     const date = parseDate(r[iDate]);
     const amount = parseAmount(r[iAmount]);
     const name = String(r[iItem] ?? "").trim();
