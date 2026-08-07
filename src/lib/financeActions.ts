@@ -379,11 +379,14 @@ function categorizeBankMerchant(
   // Retail skincare brands you resell.
   if (has("skinbetter", "skin better", "is clinical", "isclinical", "skinmedica", "skin medica"))
     return { category: "Inventory", subcategory: "Skincare / Retail" };
-  if (has("grayline", "graylinemed"))
+  // Medical consumables / treatment supplies.
+  if (has("grayline", "graylinemed", "cosmofrance", "statdds", "stat dds",
+          "palmetto medical", "palmetto"))
     return { category: "Inventory", subcategory: "Consumables" };
   // Devices / equipment (lasers, scanners). Note: some Cynosure/Lutronic charges
   // are laser consumables — recategorize those to Inventory · Consumables.
-  if (has("aura reality", "aurareality", "cynosure", "lutronic", "sciton", "candela"))
+  if (has("aura reality", "aurareality", "cynosure", "lutronic", "sciton",
+          "candela", "vertu medical", "vertu"))
     return { category: "Equipment", subcategory: "Devices" };
   // GFE / telehealth software.
   if (has("docuspa", "doc u spa", "doc-u-spa", "spa kinect", "spakinect", "spa-kinect", "telehealth"))
@@ -399,6 +402,13 @@ function categorizeBankMerchant(
   // Accounting / bookkeeping service.
   if (has("instaccounting", "insta accounting"))
     return { category: "Operating", subcategory: "Professional Services" };
+  // Medical Director fee (billed as "Urup … Wellness K") — a compliance cost.
+  if (has("urup"))
+    return { category: "Operating", subcategory: "Professional Services" };
+  // Christian Health Ministries is personal — book to Personal (kept out of the
+  // business P&L; shown on the Personal page instead).
+  if (has("christian health", "chministri", "christian healthcare"))
+    return { category: "Personal", subcategory: "Health" };
   // Software first, so "Amazon Digital" doesn't fall into the Amazon supplies bucket.
   if (has("amazon digital", "adobe", "canva", "apple", "google", "microsoft", "quicken", "zoom", "dropbox"))
     return { category: "Software", subcategory: "Subscriptions" };
@@ -410,10 +420,13 @@ function categorizeBankMerchant(
     return { category: "Supplies", subcategory: "Décor" };
   if (has("amazon", "sam's", "sams club", "walmart", "target", "costco"))
     return { category: "Supplies", subcategory: "General" };
-  // Venmo/Cash App/Zelle are payment rails, not merchants — could be anything
-  // (a contractor, a refund, personal). Flag so you can say what each was for.
-  if (has("venmo", "cash app", "cashapp", "zelle"))
+  // Venmo/Cash App/Zelle are payment rails, not merchants. The $200 & $250
+  // Venmos are the cleaner; other amounts (consulting/misc) still need review.
+  if (has("venmo", "cash app", "cashapp", "zelle")) {
+    if (Math.abs(amount - 200) < 0.01 || Math.abs(amount - 250) < 0.01)
+      return { category: "Service", subcategory: "Cleaning" };
     return { category: "Uncategorized", subcategory: "Review — Venmo, what for?" };
+  }
   // Wires: Lindsey uses these to pay for laser equipment. Big-ticket — remember
   // for the CPA these are usually depreciated, not expensed all at once.
   if (has("wire"))

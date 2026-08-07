@@ -29,7 +29,13 @@ export const EXPENSE_CATEGORIES: Record<string, string[]> = {
   Equipment: ["Devices", "Maintenance", "Financing"],
   "Owner Activity": ["Owner Draw", "Owner Contribution"],
   Banking: ["Bank Fees", "Interest", "Transfers"],
+  Personal: ["Household", "Kids", "Dining", "Groceries", "Clothing", "Travel", "Health", "Beauty", "Other"],
 };
+
+// Categories that are NOT business expenses — personal spending and owner
+// draws/contributions. Excluded from the P&L expense total; the Personal page
+// reports them so the owner can see personal spend separately.
+export const NON_EXPENSE_CATEGORIES = new Set(["Personal", "Owner Activity"]);
 
 // Flat list of every subcategory (for input suggestions).
 export const EXPENSE_SUBCATEGORIES = [

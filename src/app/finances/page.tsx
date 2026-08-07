@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentTenantId } from "@/lib/tenant";
 import { getSessionUser } from "@/lib/currentUser";
 import { money } from "@/lib/plans";
-import { periodRange, monthsInRange, pct, expenseOccurrences, type FinancePeriod } from "@/lib/finance";
+import { periodRange, monthsInRange, pct, expenseOccurrences, NON_EXPENSE_CATEGORIES, type FinancePeriod } from "@/lib/finance";
 import { FinanceTabs } from "@/components/FinanceTabs";
 import { todayStart } from "@/lib/dates";
 import { redirect } from "next/navigation";
@@ -86,12 +86,20 @@ export default async function FinancesPage({
 
   // Expand recurring expenses across the months they cover in this period
   // (e.g. rent counts every month, not just the month you entered it).
+  // Owner Activity (owner draws/contributions) is money moving in/out of the
+  // business for the owner — not a business expense — so it's excluded from the
+  // P&L expense total. It's shown separately below as an FYI.
   const expByCat = new Map<string, number>();
   let totalExpenses = 0;
+  let ownerActivity = 0;
   for (const e of expenses) {
     const occ = expenseOccurrences(e.date, e.recurring, start, end, today);
     if (occ <= 0) continue;
     const amt = e.amount * occ;
+    if (NON_EXPENSE_CATEGORIES.has(e.category)) {
+      ownerActivity += amt;
+      continue;
+    }
     expByCat.set(e.category, (expByCat.get(e.category) ?? 0) + amt);
     totalExpenses += amt;
   }
@@ -180,6 +188,13 @@ export default async function FinancesPage({
           )}
         </section>
       </div>
+
+      {ownerActivity > 0 && (
+        <p className="text-xs text-muted">
+          ↳ {money(ownerActivity)} of personal spending / owner draws is <em>excluded</em> from
+          business expenses (it&apos;s not a business cost). See the <Link href="/finances/personal" className="text-accent hover:underline">Personal</Link> tab.
+        </p>
+      )}
 
       {usingMembershipEstimate ? (
         <p className="text-xs text-muted">
