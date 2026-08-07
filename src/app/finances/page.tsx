@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentTenantId } from "@/lib/tenant";
 import { getSessionUser } from "@/lib/currentUser";
 import { money } from "@/lib/plans";
-import { periodRange, monthsInRange, pct, type FinancePeriod } from "@/lib/finance";
+import { periodRange, monthsInRange, pct, expenseOccurrences, type FinancePeriod } from "@/lib/finance";
 import { FinanceTabs } from "@/components/FinanceTabs";
 import { todayStart } from "@/lib/dates";
 import { redirect } from "next/navigation";
@@ -34,7 +34,8 @@ export default async function FinancesPage({
   const { period: periodRaw } = await searchParams;
   const period: FinancePeriod = periodRaw === "year" ? "year" : "month";
   const tenantId = await getCurrentTenantId();
-  const { start, end, label } = periodRange(period, todayStart());
+  const today = todayStart();
+  const { start, end, label } = periodRange(period, today);
   const months = Math.max(1, monthsInRange(start, end));
 
   const [manualRevenue, activeMembers, completedItems, expenses] = await Promise.all([
@@ -44,7 +45,17 @@ export default async function FinancesPage({
       where: { tenantId, status: "Completed", completedDate: { gte: start, lt: end } },
       select: { price: true },
     }),
-    prisma.expenseEntry.findMany({ where: { tenantId, date: { gte: start, lt: end } } }),
+    // Pull one-time expenses in the period AND every recurring expense that
+    // started before the period ends — recurring ones are expanded per month below.
+    prisma.expenseEntry.findMany({
+      where: {
+        tenantId,
+        OR: [
+          { recurring: false, date: { gte: start, lt: end } },
+          { recurring: true, date: { lt: end } },
+        ],
+      },
+    }),
   ]);
 
   // Revenue: recorded entries (Mindbody import/auto + manual) plus, only as a
@@ -73,9 +84,17 @@ export default async function FinancesPage({
 
   const totalRevenue = [...revByCat.values()].reduce((s, v) => s + v, 0);
 
+  // Expand recurring expenses across the months they cover in this period
+  // (e.g. rent counts every month, not just the month you entered it).
   const expByCat = new Map<string, number>();
-  for (const e of expenses) expByCat.set(e.category, (expByCat.get(e.category) ?? 0) + e.amount);
-  const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
+  let totalExpenses = 0;
+  for (const e of expenses) {
+    const occ = expenseOccurrences(e.date, e.recurring, start, end, today);
+    if (occ <= 0) continue;
+    const amt = e.amount * occ;
+    expByCat.set(e.category, (expByCat.get(e.category) ?? 0) + amt);
+    totalExpenses += amt;
+  }
 
   const net = totalRevenue - totalExpenses;
   const margin = pct(net, totalRevenue);

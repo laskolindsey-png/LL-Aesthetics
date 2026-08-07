@@ -101,3 +101,23 @@ export function monthsInRange(start: Date, end: Date): number {
 export function pct(n: number, d: number): number {
   return d > 0 ? Math.round((n / d) * 100) : 0;
 }
+
+const monthIndex = (d: Date) => d.getFullYear() * 12 + d.getMonth();
+
+// How many times a recurring expense (billed monthly from its date) lands inside
+// a [start, end) period — capped at `now` so future months aren't counted as
+// already spent. A one-time expense simply counts once if its date is in range.
+export function expenseOccurrences(
+  expenseDate: Date,
+  recurring: boolean,
+  start: Date,
+  end: Date,
+  now: Date
+): number {
+  if (!recurring) {
+    return expenseDate >= start && expenseDate < end ? 1 : 0;
+  }
+  const lo = Math.max(monthIndex(start), monthIndex(expenseDate));
+  const hi = Math.min(monthIndex(end) - 1, monthIndex(now));
+  return Math.max(0, hi - lo + 1);
+}

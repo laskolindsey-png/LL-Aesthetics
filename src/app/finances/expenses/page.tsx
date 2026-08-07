@@ -37,6 +37,8 @@ export default async function ExpensesPage({
         <h1 className="text-2xl font-semibold text-ink">Expenses</h1>
         <p className="mt-1 text-sm text-muted">
           Log what you spend. Pick a known vendor to pre-fill its category, or type a new one.
+          Tick <strong>Recurring</strong> for a monthly bill (rent, software, utilities) and enter it
+          <em> once</em> — the Dashboard counts it automatically every month from its date.
         </p>
       </div>
 
