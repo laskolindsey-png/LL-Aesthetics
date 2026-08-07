@@ -13,6 +13,7 @@ export const REVENUE_CATEGORIES = [
 // plus the owner's own categories).
 export const EXPENSE_CATEGORIES: Record<string, string[]> = {
   Inventory: ["Injectables", "Skincare / Retail", "Consumables", "Peptides"],
+  Supplies: ["General", "Décor", "Office", "Treatment Room"],
   Payroll: ["Wages", "Contractor", "Payroll Taxes", "Benefits"],
   Bills: ["Gas", "Water", "Electric", "Internet", "Phone", "Cable"],
   Software: ["Subscriptions", "SaaS", "Website", "EMR / Booking"],

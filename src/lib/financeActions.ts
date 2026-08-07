@@ -327,6 +327,7 @@ export async function importPayrollCsv(formData: FormData) {
 function categorizeBankMerchant(descRaw: string): { category: string; subcategory: string | null } {
   const d = (descRaw ?? "").toLowerCase();
   const has = (...ks: string[]) => ks.some((k) => d.includes(k));
+  // True product/inventory: skincare you resell + medical supplies.
   if (has("skinbetter", "skinmedica", "skin better", "skin medica"))
     return { category: "Inventory", subcategory: "Skincare / Retail" };
   if (has("grayline", "graylinemed"))
@@ -334,8 +335,11 @@ function categorizeBankMerchant(descRaw: string): { category: string; subcategor
   // Software first, so "Amazon Digital" doesn't fall into the Amazon supplies bucket.
   if (has("amazon digital", "adobe", "canva", "apple", "google", "microsoft", "quicken", "zoom", "dropbox"))
     return { category: "Software", subcategory: "Subscriptions" };
-  if (has("amazon", "sam's", "sams club", "walmart", "target", "hobby lobby", "etsy", "costco"))
-    return { category: "Inventory", subcategory: "Consumables" };
+  // General shopping → its own "Supplies" bucket (kept separate from product Inventory).
+  if (has("hobby lobby", "etsy"))
+    return { category: "Supplies", subcategory: "Décor" };
+  if (has("amazon", "sam's", "sams club", "walmart", "target", "costco"))
+    return { category: "Supplies", subcategory: "General" };
   // Uncertain — likely personal; leave for review.
   if (has("nike", "tractor supply"))
     return { category: "Uncategorized", subcategory: "Review — maybe personal" };
