@@ -24,6 +24,8 @@ export const EXPENSE_CATEGORIES: Record<string, string[]> = {
     "Office Supplies",
     "Insurance",
     "Professional Services",
+    "Travel",
+    "Continuing Education",
     "Merchant Fees",
   ],
   Equipment: ["Devices", "Maintenance", "Financing"],

@@ -409,6 +409,9 @@ function categorizeBankMerchant(
   // business P&L; shown on the Personal page instead).
   if (has("christian health", "chministri", "christian healthcare"))
     return { category: "Personal", subcategory: "Health" };
+  // Business travel (e.g. Pendry hotel — a work trip).
+  if (has("pendry"))
+    return { category: "Operating", subcategory: "Travel" };
   // Software first, so "Amazon Digital" doesn't fall into the Amazon supplies bucket.
   if (has("amazon digital", "adobe", "canva", "apple", "google", "microsoft", "quicken", "zoom", "dropbox"))
     return { category: "Software", subcategory: "Subscriptions" };
