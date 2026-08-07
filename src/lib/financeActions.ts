@@ -347,10 +347,16 @@ export async function importPayrollCsv(formData: FormData) {
 function isSkippableBankLine(descRaw: string): boolean {
   const d = (descRaw ?? "").toLowerCase();
   if (d.includes("gusto")) return true; // payroll — owned by the Gusto import
-  // Internal account-to-account transfers (main ⇄ consumables savings, etc.).
-  if (/\b(transfer|xfer)\b/.test(d) || d.includes("online transfer") ||
-      d.includes("mobile transfer") || d.includes("to savings") ||
-      d.includes("to checking") || d.includes("acct transfer"))
+  // Venmo and wires are real money going OUT to people/vendors, not internal
+  // moves — never skip them. They get flagged for review instead (below) so a
+  // big payment can't silently disappear.
+  if (d.includes("venmo") || d.includes("wire")) return false;
+  // Genuine account-to-account transfers (main ⇄ consumables/savings). The real
+  // spending is a purchase on the OTHER account, so skip the move itself.
+  if (/transfer\s+from\b/.test(d) ||
+      /transfer\s+to\s+(savings|checking|acct|account)/.test(d) ||
+      d.includes("acct transfer") || d.includes("account transfer") ||
+      /\bxfer\b/.test(d))
     return true;
   return false;
 }
@@ -373,8 +379,19 @@ function categorizeBankMerchant(descRaw: string): { category: string; subcategor
   if (has("aura reality", "aurareality", "cynosure", "lutronic", "sciton", "candela"))
     return { category: "Equipment", subcategory: "Devices" };
   // GFE / telehealth software.
-  if (has("docuspa", "doc u spa", "doc-u-spa", "spa kinect", "spakinect", "spa-kinect"))
+  if (has("docuspa", "doc u spa", "doc-u-spa", "spa kinect", "spakinect", "spa-kinect", "telehealth"))
     return { category: "Software", subcategory: "GFE / Telehealth" };
+  // Booking / EMR + patient-comms software.
+  if (has("mindbody"))
+    return { category: "Software", subcategory: "EMR / Booking" };
+  if (has("weave"))
+    return { category: "Software", subcategory: "Subscriptions" };
+  // Marketing / SEO vendor.
+  if (has("middle way marketing", "middlewaymark", "middleway"))
+    return { category: "Operating", subcategory: "Marketing" };
+  // Accounting / bookkeeping service.
+  if (has("instaccounting", "insta accounting"))
+    return { category: "Operating", subcategory: "Professional Services" };
   // Software first, so "Amazon Digital" doesn't fall into the Amazon supplies bucket.
   if (has("amazon digital", "adobe", "canva", "apple", "google", "microsoft", "quicken", "zoom", "dropbox"))
     return { category: "Software", subcategory: "Subscriptions" };
@@ -389,7 +406,18 @@ function categorizeBankMerchant(descRaw: string): { category: string; subcategor
   // Venmo/Cash App/Zelle are payment rails, not merchants — could be anything
   // (a contractor, a refund, personal). Flag so you can say what each was for.
   if (has("venmo", "cash app", "cashapp", "zelle"))
-    return { category: "Uncategorized", subcategory: "Review — Venmo/transfer, what for?" };
+    return { category: "Uncategorized", subcategory: "Review — Venmo, what for?" };
+  // Wires are big and ambiguous (a device, a bulk vendor order, moving money) —
+  // never guess; flag for review so a large amount can't be miscategorized.
+  if (has("wire"))
+    return { category: "Uncategorized", subcategory: "Review — wire, what for?" };
+  // Credit-card payoffs: the real expenses live on THAT card's statement. Flag
+  // so you can import the card instead of counting the lump payment as spend.
+  if (has("credit card", "card payment", "cardmember", "card pmt"))
+    return { category: "Uncategorized", subcategory: "Review — credit-card payoff (import that card)" };
+  // Loan payments: principal isn't an expense, only interest is. Flag for review.
+  if (has("loan payment", "loan pmt", "bankloan"))
+    return { category: "Uncategorized", subcategory: "Review — loan payment" };
   // Uncertain — likely personal; leave for review.
   if (has("nike", "tractor supply"))
     return { category: "Uncategorized", subcategory: "Review — maybe personal" };
