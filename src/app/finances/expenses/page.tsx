@@ -4,7 +4,7 @@ import { getSessionUser } from "@/lib/currentUser";
 import { money } from "@/lib/plans";
 import { formatDate, toDateInput, todayStart } from "@/lib/dates";
 import { EXPENSE_CATEGORY_NAMES, EXPENSE_SUBCATEGORIES } from "@/lib/finance";
-import { createExpense, editExpense, deleteExpense, importPayrollCsv } from "@/lib/financeActions";
+import { createExpense, editExpense, deleteExpense, importPayrollCsv, importBankCsv } from "@/lib/financeActions";
 import { FinanceTabs } from "@/components/FinanceTabs";
 import { redirect } from "next/navigation";
 import Link from "next/link";
@@ -12,19 +12,20 @@ import Link from "next/link";
 export const dynamic = "force-dynamic";
 
 const IMPORT_ERRORS: Record<string, string> = {
-  nofile: "No file was selected. Choose your payroll export and try again.",
+  nofile: "No file was selected. Choose your file and try again.",
   payroll: "Couldn't read that payroll file — it should have a 'Payroll pay date' and 'Gross earnings' column (a Gusto export works).",
+  bank: "Couldn't read that bank file — it should have a 'Post Date', 'Description', and 'Debit' column.",
 };
 
 export default async function ExpensesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ edit?: string; imported?: string; error?: string }>;
+  searchParams: Promise<{ edit?: string; imported?: string; bank?: string; review?: string; error?: string }>;
 }) {
   const me = await getSessionUser();
   if (!me) redirect("/login");
   if (me.role !== "owner") redirect("/");
-  const { edit, imported, error } = await searchParams;
+  const { edit, imported, bank, review, error } = await searchParams;
   const tenantId = await getCurrentTenantId();
 
   const [entries, vendors] = await Promise.all([
@@ -54,6 +55,14 @@ export default async function ExpensesPage({
           Imported {imported} payroll run{imported === "1" ? "" : "s"} (one per pay date, gross wages + employer taxes).
         </div>
       )}
+      {bank !== undefined && (
+        <div className="rounded-lg border border-success/30 bg-success/10 px-4 py-3 text-sm text-ink">
+          Imported {bank} bank transaction{bank === "1" ? "" : "s"}, auto-categorized.
+          {review && review !== "0" ? (
+            <> <strong>{review}</strong> landed in <em>Uncategorized</em> (unknown or maybe-personal) — review and edit/delete those below.</>
+          ) : null}
+        </div>
+      )}
       {error && (
         <div className="rounded-lg border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
           {IMPORT_ERRORS[error] ?? "Something went wrong with that file. Please try again."}
@@ -76,6 +85,27 @@ export default async function ExpensesPage({
             className="block text-sm text-ink file:mr-3 file:rounded-lg file:border-0 file:bg-ink file:px-3 file:py-1.5 file:text-sm file:text-white hover:file:bg-ink/90"
           />
           <button className="btn-accent">Import payroll</button>
+        </form>
+      </div>
+
+      {/* Import a bank statement — auto-categorizes expenses by merchant. */}
+      <div className="card border-dashed p-5">
+        <h2 className="text-sm font-semibold text-ink">Import a bank statement</h2>
+        <p className="mt-1 text-xs text-muted">
+          Upload your bank/card CSV (columns like <em>Post Date, Description, Debit</em>). Each charge becomes an
+          expense, <strong>auto-categorized by merchant</strong> (Skinbetter → Skincare, Adobe → Software, Amazon →
+          Supplies…). Unknown or maybe-personal ones land in <em>Uncategorized</em> for you to edit or delete.
+          Credits/refunds are skipped. Re-uploading the same statement replaces, it doesn&apos;t double.
+        </p>
+        <form action={importBankCsv} className="mt-3 flex flex-wrap items-center gap-3">
+          <input
+            type="file"
+            name="file"
+            accept=".csv,.xlsx,.xls,text/csv"
+            required
+            className="block text-sm text-ink file:mr-3 file:rounded-lg file:border-0 file:bg-ink file:px-3 file:py-1.5 file:text-sm file:text-white hover:file:bg-ink/90"
+          />
+          <button className="btn-accent">Import bank statement</button>
         </form>
       </div>
 

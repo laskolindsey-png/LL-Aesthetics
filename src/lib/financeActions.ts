@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 import { getCurrentTenantId } from "./tenant";
 import { getSessionUser } from "./currentUser";
@@ -318,6 +319,86 @@ export async function importPayrollCsv(formData: FormData) {
   }
   revalidateFinance();
   redirect(`/finances/expenses?imported=${imported}`);
+}
+
+// --- Bank statement import --------------------------------------------------
+// Auto-categorize a merchant by its description. Unknown or maybe-personal
+// merchants land in "Uncategorized" for a quick review (edit or delete).
+function categorizeBankMerchant(descRaw: string): { category: string; subcategory: string | null } {
+  const d = (descRaw ?? "").toLowerCase();
+  const has = (...ks: string[]) => ks.some((k) => d.includes(k));
+  if (has("skinbetter", "skinmedica", "skin better", "skin medica"))
+    return { category: "Inventory", subcategory: "Skincare / Retail" };
+  if (has("grayline", "graylinemed"))
+    return { category: "Inventory", subcategory: "Consumables" };
+  // Software first, so "Amazon Digital" doesn't fall into the Amazon supplies bucket.
+  if (has("amazon digital", "adobe", "canva", "apple", "google", "microsoft", "quicken", "zoom", "dropbox"))
+    return { category: "Software", subcategory: "Subscriptions" };
+  if (has("amazon", "sam's", "sams club", "walmart", "target", "hobby lobby", "etsy", "costco"))
+    return { category: "Inventory", subcategory: "Consumables" };
+  // Uncertain — likely personal; leave for review.
+  if (has("nike", "tractor supply"))
+    return { category: "Uncategorized", subcategory: "Review — maybe personal" };
+  return { category: "Uncategorized", subcategory: null };
+}
+
+export async function importBankCsv(formData: FormData) {
+  await requireOwner();
+  const tenantId = await getCurrentTenantId();
+  const file = formData.get("file") as File | null;
+  if (!file || file.size === 0) redirect("/finances/expenses?error=nofile");
+
+  const rows = await rowsFromFile(file);
+  const hi = rows.findIndex((r) =>
+    r.some((c) => String(c ?? "").trim().toLowerCase() === "post date")
+  );
+  if (hi < 0) redirect("/finances/expenses?error=bank");
+  const header = rows[hi].map((h) => String(h ?? "").trim().toLowerCase());
+  const col = (...names: string[]) => {
+    for (const n of names) { const i = header.indexOf(n); if (i >= 0) return i; }
+    return -1;
+  };
+  const iDate = col("post date", "date", "transaction date");
+  const iDesc = col("description", "merchant", "name");
+  const iDeb = col("debit", "amount", "withdrawal");
+  if (iDate < 0 || iDesc < 0 || iDeb < 0) redirect("/finances/expenses?error=bank");
+
+  const num = (v: unknown) =>
+    typeof v === "number" ? v : Number(String(v ?? "").replace(/[^0-9.\-]/g, "")) || 0;
+
+  // Build entries; key each by date|desc|amount|occurrence so re-importing the
+  // same statement replaces rather than duplicates.
+  const seen = new Map<string, number>();
+  const toCreate: Prisma.ExpenseEntryCreateManyInput[] = [];
+  let review = 0;
+  for (const r of rows.slice(hi + 1)) {
+    const debit = num(r[iDeb]);
+    if (debit <= 0) continue; // credits/refunds/deposits aren't expenses
+    const dstr = String(r[iDate] ?? "").trim();
+    const date = new Date(dstr);
+    if (isNaN(date.getTime())) continue;
+    const desc = String(r[iDesc] ?? "").trim() || "Bank transaction";
+    const base = `bank:${dstr}|${desc.toLowerCase()}|${debit}`;
+    const occ = (seen.get(base) ?? 0) + 1;
+    seen.set(base, occ);
+    const { category, subcategory } = categorizeBankMerchant(desc);
+    if (category === "Uncategorized") review++;
+    toCreate.push({
+      tenantId, date, vendor: desc, description: null,
+      category, subcategory, amount: debit, recurring: false,
+      importKey: `${base}|${occ}`,
+    });
+  }
+
+  const keys = toCreate.map((t) => t.importKey!).filter(Boolean);
+  if (keys.length) {
+    await prisma.expenseEntry.deleteMany({ where: { tenantId, importKey: { in: keys } } });
+  }
+  if (toCreate.length) {
+    await prisma.expenseEntry.createMany({ data: toCreate });
+  }
+  revalidateFinance();
+  redirect(`/finances/expenses?bank=${toCreate.length}&review=${review}`);
 }
 
 export async function createVendor(formData: FormData) {
