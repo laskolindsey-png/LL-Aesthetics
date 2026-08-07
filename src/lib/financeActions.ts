@@ -327,6 +327,11 @@ export async function importPayrollCsv(formData: FormData) {
 function categorizeBankMerchant(descRaw: string): { category: string; subcategory: string | null } {
   const d = (descRaw ?? "").toLowerCase();
   const has = (...ks: string[]) => ks.some((k) => d.includes(k));
+  // Injectables — your biggest product cost.
+  if (has("evolus", "jeuveau", "allergan", "galderma", "botox", "dysport",
+          "xeomin", "daxxify", "revance", "merz", "juvederm", "restylane",
+          "revanesse", "prollenium", "rha", "belotero"))
+    return { category: "Inventory", subcategory: "Injectables" };
   // True product/inventory: skincare you resell + medical supplies.
   if (has("skinbetter", "skinmedica", "skin better", "skin medica"))
     return { category: "Inventory", subcategory: "Skincare / Retail" };
