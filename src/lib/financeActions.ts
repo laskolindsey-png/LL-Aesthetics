@@ -385,8 +385,10 @@ function categorizeBankMerchant(
     return { category: "Inventory", subcategory: "Consumables" };
   // Devices / equipment (lasers, scanners). Note: some Cynosure/Lutronic charges
   // are laser consumables — recategorize those to Inventory · Consumables.
+  // Aura Reality skin scanner bills under "Leica Geosystems" (both are Hexagon
+  // companies), so treat Leica charges as Aura scanner device payments.
   if (has("aura reality", "aurareality", "cynosure", "lutronic", "sciton",
-          "candela", "vertu medical", "vertu"))
+          "candela", "vertu medical", "vertu", "leica"))
     return { category: "Equipment", subcategory: "Devices" };
   // GFE / telehealth software.
   if (has("docuspa", "doc u spa", "doc-u-spa", "spa kinect", "spakinect", "spa-kinect", "telehealth"))
