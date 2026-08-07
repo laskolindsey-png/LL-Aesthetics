@@ -361,9 +361,16 @@ function isSkippableBankLine(descRaw: string): boolean {
   return false;
 }
 
-function categorizeBankMerchant(descRaw: string): { category: string; subcategory: string | null } {
+function categorizeBankMerchant(
+  descRaw: string,
+  amount = 0
+): { category: string; subcategory: string | null } {
   const d = (descRaw ?? "").toLowerCase();
   const has = (...ks: string[]) => ks.some((k) => d.includes(k));
+  // Rent: paid by check to the landlord (Jeff C. Wilson), a steady $2,500 on the
+  // 1st of the month. Bank check lines carry no payee, so match on the amount.
+  if (d.includes("check") && Math.abs(amount - 2500) < 0.01)
+    return { category: "Operating", subcategory: "Rent" };
   // Injectables — your biggest product cost.
   if (has("evolus", "jeuveau", "allergan", "galderma", "botox", "dysport",
           "xeomin", "daxxify", "revance", "merz", "juvederm", "restylane",
@@ -407,10 +414,10 @@ function categorizeBankMerchant(descRaw: string): { category: string; subcategor
   // (a contractor, a refund, personal). Flag so you can say what each was for.
   if (has("venmo", "cash app", "cashapp", "zelle"))
     return { category: "Uncategorized", subcategory: "Review — Venmo, what for?" };
-  // Wires are big and ambiguous (a device, a bulk vendor order, moving money) —
-  // never guess; flag for review so a large amount can't be miscategorized.
+  // Wires: Lindsey uses these to pay for laser equipment. Big-ticket — remember
+  // for the CPA these are usually depreciated, not expensed all at once.
   if (has("wire"))
-    return { category: "Uncategorized", subcategory: "Review — wire, what for?" };
+    return { category: "Equipment", subcategory: "Devices" };
   // Credit-card payoffs: the real expenses live on THAT card's statement. Flag
   // so you can import the card instead of counting the lump payment as spend.
   if (has("credit card", "card payment", "cardmember", "card pmt"))
@@ -464,10 +471,13 @@ export async function importBankCsv(formData: FormData) {
     const base = `bank:${dstr}|${desc.toLowerCase()}|${debit}`;
     const occ = (seen.get(base) ?? 0) + 1;
     seen.set(base, occ);
-    const { category, subcategory } = categorizeBankMerchant(desc);
+    const { category, subcategory } = categorizeBankMerchant(desc, debit);
     if (category === "Uncategorized") review++;
+    // Give the auto-tagged rent checks a readable vendor instead of "Check #1234".
+    const vendor =
+      subcategory === "Rent" ? `Rent — Jeff C. Wilson (${desc})` : desc;
     toCreate.push({
-      tenantId, date, vendor: desc, description: null,
+      tenantId, date, vendor, description: null,
       category, subcategory, amount: debit, recurring: false,
       importKey: `${base}|${occ}`,
     });
