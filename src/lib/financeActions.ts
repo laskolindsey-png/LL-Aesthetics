@@ -332,19 +332,33 @@ function categorizeBankMerchant(descRaw: string): { category: string; subcategor
           "xeomin", "daxxify", "revance", "merz", "juvederm", "restylane",
           "revanesse", "prollenium", "rha", "belotero"))
     return { category: "Inventory", subcategory: "Injectables" };
-  // True product/inventory: skincare you resell + medical supplies.
-  if (has("skinbetter", "skinmedica", "skin better", "skin medica"))
+  // Retail skincare brands you resell.
+  if (has("skinbetter", "skin better", "is clinical", "isclinical", "skinmedica", "skin medica"))
     return { category: "Inventory", subcategory: "Skincare / Retail" };
   if (has("grayline", "graylinemed"))
     return { category: "Inventory", subcategory: "Consumables" };
+  // Devices / equipment (lasers, scanners). Note: some Cynosure/Lutronic charges
+  // are laser consumables — recategorize those to Inventory · Consumables.
+  if (has("aura reality", "aurareality", "cynosure", "lutronic", "sciton", "candela"))
+    return { category: "Equipment", subcategory: "Devices" };
+  // GFE / telehealth software.
+  if (has("docuspa", "doc u spa", "doc-u-spa", "spa kinect", "spakinect", "spa-kinect"))
+    return { category: "Software", subcategory: "GFE / Telehealth" };
   // Software first, so "Amazon Digital" doesn't fall into the Amazon supplies bucket.
   if (has("amazon digital", "adobe", "canva", "apple", "google", "microsoft", "quicken", "zoom", "dropbox"))
     return { category: "Software", subcategory: "Subscriptions" };
+  // Outside contractors / freelancers (Upwork = e.g. developer, designers).
+  if (has("upwork", "fiverr"))
+    return { category: "Operating", subcategory: "Professional Services" };
   // General shopping → its own "Supplies" bucket (kept separate from product Inventory).
   if (has("hobby lobby", "etsy"))
     return { category: "Supplies", subcategory: "Décor" };
   if (has("amazon", "sam's", "sams club", "walmart", "target", "costco"))
     return { category: "Supplies", subcategory: "General" };
+  // Venmo/Cash App/Zelle are payment rails, not merchants — could be anything
+  // (a contractor, a refund, personal). Flag so you can say what each was for.
+  if (has("venmo", "cash app", "cashapp", "zelle"))
+    return { category: "Uncategorized", subcategory: "Review — Venmo/transfer, what for?" };
   // Uncertain — likely personal; leave for review.
   if (has("nike", "tractor supply"))
     return { category: "Uncategorized", subcategory: "Review — maybe personal" };
