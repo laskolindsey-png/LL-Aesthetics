@@ -58,6 +58,15 @@ function needsNoFollowUp(rawService: string): boolean {
   return NO_FOLLOWUP_KEYWORDS.some((k) => lower.includes(k));
 }
 
+// A "2 week (Botox) enhancement visit" is a touch-up within an existing cycle —
+// it should create no follow-up of its own. Kept narrow so it doesn't catch a
+// real treatment like "Lip Enhancement" (filler), which needs aftercare.
+function isEnhancementVisit(rawService: string): boolean {
+  const s = canonicalService(rawService).toLowerCase();
+  const twoWeek = /(^|\b)(2|two)[\s-]*week/.test(s);
+  return (twoWeek && s.includes("enhancement")) || s.includes("enhancement visit");
+}
+
 /**
  * Map a raw Mindbody service name to a known rule service name, or null.
  * Order: exact → explicit alias → rule-name prefix ("Laser Hair Removal Sm"
@@ -99,9 +108,10 @@ export async function findMatchingRules(
   if (rules.length > 0) return rules;
 
   if (patientEvent === "Treatment Completed") {
-    // Quick cosmetic services (brows, lashes, waxing, tinting) get no follow-up
-    // at all — skip before the generic fallback so they never create tasks.
-    if (needsNoFollowUp(service)) return [];
+    // Quick cosmetic services (brows, lashes, waxing, tinting) and touch-up
+    // enhancement visits get no follow-up at all — skip before the generic
+    // fallback so they never create tasks.
+    if (needsNoFollowUp(service) || isEnhancementVisit(service)) return [];
 
     // Resolve a variant/alias name (e.g. "Laser Hair Removal Sm", "PRX (WiQO)",
     // "HydraFacial Signature") to a real rule before falling back to generic.
