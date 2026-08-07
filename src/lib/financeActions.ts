@@ -109,6 +109,19 @@ export async function deleteExpense(formData: FormData) {
   revalidateFinance();
 }
 
+// Remove only the expenses you typed in by hand (no importKey) — leaves anything
+// that came from the bank/payroll importers untouched. Used when switching to a
+// bank-statement-first workflow so manual back-dated entries don't double-count.
+export async function clearManualExpenses() {
+  await requireOwner();
+  const tenantId = await getCurrentTenantId();
+  const res = await prisma.expenseEntry.deleteMany({
+    where: { tenantId, importKey: null },
+  });
+  revalidateFinance();
+  redirect(`/finances/expenses?cleared=${res.count}`);
+}
+
 // --- Mindbody Sales report import -------------------------------------------
 // Accepts a CSV export of a Mindbody Sales report and turns each line into a
 // revenue entry. Memberships are skipped (the dashboard counts them via active
@@ -324,6 +337,24 @@ export async function importPayrollCsv(formData: FormData) {
 // --- Bank statement import --------------------------------------------------
 // Auto-categorize a merchant by its description. Unknown or maybe-personal
 // merchants land in "Uncategorized" for a quick review (edit or delete).
+// Some bank lines are NOT expenses and must be skipped on import so they don't
+// double-count what another source already owns:
+//  - Gusto debits: payroll is owned by the Gusto payroll import (gross wages +
+//    employer taxes). Skipping the bank copy keeps payroll counted once.
+//  - Internal transfers: moving money from the main account to the consumables
+//    account is not spending — the real expense is the purchase on the other
+//    account. Counting the transfer too would double every consumables dollar.
+function isSkippableBankLine(descRaw: string): boolean {
+  const d = (descRaw ?? "").toLowerCase();
+  if (d.includes("gusto")) return true; // payroll — owned by the Gusto import
+  // Internal account-to-account transfers (main ⇄ consumables savings, etc.).
+  if (/\b(transfer|xfer)\b/.test(d) || d.includes("online transfer") ||
+      d.includes("mobile transfer") || d.includes("to savings") ||
+      d.includes("to checking") || d.includes("acct transfer"))
+    return true;
+  return false;
+}
+
 function categorizeBankMerchant(descRaw: string): { category: string; subcategory: string | null } {
   const d = (descRaw ?? "").toLowerCase();
   const has = (...ks: string[]) => ks.some((k) => d.includes(k));
@@ -401,6 +432,7 @@ export async function importBankCsv(formData: FormData) {
     const date = new Date(dstr);
     if (isNaN(date.getTime())) continue;
     const desc = String(r[iDesc] ?? "").trim() || "Bank transaction";
+    if (isSkippableBankLine(desc)) continue; // Gusto payroll / internal transfers
     const base = `bank:${dstr}|${desc.toLowerCase()}|${debit}`;
     const occ = (seen.get(base) ?? 0) + 1;
     seen.set(base, occ);

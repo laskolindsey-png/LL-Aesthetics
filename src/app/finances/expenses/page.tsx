@@ -4,7 +4,7 @@ import { getSessionUser } from "@/lib/currentUser";
 import { money } from "@/lib/plans";
 import { formatDate, toDateInput, todayStart } from "@/lib/dates";
 import { EXPENSE_CATEGORY_NAMES, EXPENSE_SUBCATEGORIES } from "@/lib/finance";
-import { createExpense, editExpense, deleteExpense, importPayrollCsv, importBankCsv } from "@/lib/financeActions";
+import { createExpense, editExpense, deleteExpense, importPayrollCsv, importBankCsv, clearManualExpenses } from "@/lib/financeActions";
 import { FinanceTabs } from "@/components/FinanceTabs";
 import { redirect } from "next/navigation";
 import Link from "next/link";
@@ -20,21 +20,22 @@ const IMPORT_ERRORS: Record<string, string> = {
 export default async function ExpensesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ edit?: string; imported?: string; bank?: string; review?: string; error?: string }>;
+  searchParams: Promise<{ edit?: string; imported?: string; bank?: string; review?: string; error?: string; cleared?: string; confirmClear?: string }>;
 }) {
   const me = await getSessionUser();
   if (!me) redirect("/login");
   if (me.role !== "owner") redirect("/");
-  const { edit, imported, bank, review, error } = await searchParams;
+  const { edit, imported, bank, review, error, cleared, confirmClear } = await searchParams;
   const tenantId = await getCurrentTenantId();
 
-  const [entries, vendors] = await Promise.all([
+  const [entries, vendors, manualCount] = await Promise.all([
     prisma.expenseEntry.findMany({
       where: { tenantId },
       orderBy: [{ date: "desc" }, { createdAt: "desc" }],
       take: 100,
     }),
     prisma.vendor.findMany({ where: { tenantId }, orderBy: { name: "asc" } }),
+    prisma.expenseEntry.count({ where: { tenantId, importKey: null } }),
   ]);
 
   return (
@@ -68,6 +69,44 @@ export default async function ExpensesPage({
           {IMPORT_ERRORS[error] ?? "Something went wrong with that file. Please try again."}
         </div>
       )}
+      {cleared !== undefined && (
+        <div className="rounded-lg border border-success/30 bg-success/10 px-4 py-3 text-sm text-ink">
+          Removed {cleared} manually-entered expense{cleared === "1" ? "" : "s"}. Imported (bank/payroll) entries were kept.
+          Now import your bank statements to rebuild expenses from the source.
+        </div>
+      )}
+
+      {/* Switch to a bank-first workflow: wipe hand-typed expenses in one click,
+          keeping anything the importers own. Two-step so it isn't an accident. */}
+      {manualCount > 0 && (
+        confirmClear ? (
+          <div className="rounded-lg border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-ink">
+            <p className="font-medium text-danger">Remove all {manualCount} manually-entered expense{manualCount === 1 ? "" : "s"}?</p>
+            <p className="mt-1 text-muted">
+              This deletes only expenses you typed in by hand. Anything imported from a bank statement or payroll
+              file stays. Use this before importing your full-year statements so nothing double-counts. This can&apos;t be undone.
+            </p>
+            <div className="mt-3 flex items-center gap-3">
+              <form action={clearManualExpenses}>
+                <button className="rounded-lg bg-danger px-3 py-1.5 text-sm font-medium text-white hover:bg-danger/90">
+                  Yes, remove {manualCount} manual {manualCount === 1 ? "entry" : "entries"}
+                </button>
+              </form>
+              <Link href="/finances/expenses" className="text-sm text-muted hover:text-ink">Cancel</Link>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-canvas/50 px-4 py-2.5 text-sm">
+            <span className="text-muted">
+              You have <strong className="text-ink">{manualCount}</strong> hand-typed expense{manualCount === 1 ? "" : "s"}.
+              Switching to bank-statement imports? Clear these first so they don&apos;t double-count.
+            </span>
+            <Link href="/finances/expenses?confirmClear=1" className="text-xs font-medium text-danger hover:underline">
+              Clear manual entries
+            </Link>
+          </div>
+        )
+      )}
 
       {/* Import payroll from a Gusto (or similar) export. */}
       <div className="card border-dashed p-5">
@@ -95,7 +134,8 @@ export default async function ExpensesPage({
           Upload your bank/card CSV (columns like <em>Post Date, Description, Debit</em>). Each charge becomes an
           expense, <strong>auto-categorized by merchant</strong> (Skinbetter → Skincare, Adobe → Software, Amazon →
           Supplies…). Unknown or maybe-personal ones land in <em>Uncategorized</em> for you to edit or delete.
-          Credits/refunds are skipped. Re-uploading the same statement replaces, it doesn&apos;t double.
+          Credits/refunds, <strong>internal transfers</strong> (main ⇄ consumables), and <strong>Gusto payroll</strong>{" "}
+          (already counted from your payroll import) are skipped. Re-uploading the same statement replaces, it doesn&apos;t double.
         </p>
         <form action={importBankCsv} className="mt-3 flex flex-wrap items-center gap-3">
           <input
