@@ -425,12 +425,14 @@ function categorizeBankMerchant(
     return { category: "Supplies", subcategory: "Décor" };
   if (has("amazon", "sam's", "sams club", "walmart", "target", "costco"))
     return { category: "Supplies", subcategory: "General" };
-  // Venmo/Cash App/Zelle are payment rails, not merchants. The $200 & $250
-  // Venmos are the cleaner; other amounts (consulting/misc) still need review.
+  // Venmo/Cash App/Zelle are payment rails, not merchants. Per Lindsey: the
+  // cleaner is paid $200 or $250 (and $450 = two cleanings paid together); every
+  // other Venmo amount is personal.
   if (has("venmo", "cash app", "cashapp", "zelle")) {
-    if (Math.abs(amount - 200) < 0.01 || Math.abs(amount - 250) < 0.01)
-      return { category: "Service", subcategory: "Cleaning" };
-    return { category: "Uncategorized", subcategory: "Review — Venmo, what for?" };
+    const cleaning = [200, 250, 450].some((v) => Math.abs(amount - v) < 0.01);
+    return cleaning
+      ? { category: "Service", subcategory: "Cleaning" }
+      : { category: "Personal", subcategory: "Other" };
   }
   // Wires: Lindsey uses these to pay for laser equipment. Big-ticket — remember
   // for the CPA these are usually depreciated, not expensed all at once.
